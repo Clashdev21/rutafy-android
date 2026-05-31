@@ -1,53 +1,40 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MensajeroSearchingRadar } from '@/components/mensajero/MensajeroSearchingRadar';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 
 type Props = {
   onToggleOffline: () => void;
-  onLogout?: () => void;
   loading?: boolean;
   disabled?: boolean;
 };
 
-export function MensajeroAvailableScreen({
-  onToggleOffline,
-  onLogout,
-  loading,
-  disabled,
-}: Props) {
+export function MensajeroAvailableScreen({ onToggleOffline, loading, disabled }: Props) {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <View style={styles.topBar}>
           <View style={styles.badge}>
+            <View style={styles.badgeDot} />
             <Text style={styles.badgeText}>En línea</Text>
-          </View>
-          <View style={styles.topActions}>
-            <Pressable
-              onPress={onToggleOffline}
-              disabled={disabled || loading}
-              style={styles.offlineLink}>
-              <Text style={styles.offlineLinkText}>Pasar a offline</Text>
-            </Pressable>
-            {onLogout ? (
-              <Pressable onPress={onLogout}>
-                <Text style={styles.logoutText}>Salir</Text>
-              </Pressable>
-            ) : null}
           </View>
         </View>
       </SafeAreaView>
 
       <View style={styles.center}>
-        <View style={styles.radar}>
-          <View style={styles.radarRing} />
-          <View style={styles.radarDot} />
-        </View>
+        <MensajeroSearchingRadar />
         <Text style={styles.title}>Buscando servicios para ti</Text>
-        <Text style={styles.subtitle}>Te avisaremos en cuanto aparezca una oferta</Text>
+        <Text style={styles.subtitle}>
+          Estamos revisando solicitudes cercanas. Recibirás una notificación en cuanto haya una
+          oferta disponible.
+        </Text>
+        <View style={styles.tips}>
+          <Text style={styles.tip}>• Mantén la app abierta para responder rápido</Text>
+          <Text style={styles.tip}>• Las ofertas expiran en pocos minutos</Text>
+        </View>
       </View>
 
       <SafeAreaView edges={['bottom']} style={styles.footer}>
@@ -66,17 +53,18 @@ export function MensajeroAvailableScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: RutafyColors.surface,
+    backgroundColor: RutafyColors.surfaceMuted,
   },
   safe: { paddingHorizontal: Spacing.four },
   topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     paddingTop: Spacing.two,
-    gap: Spacing.two,
+    paddingBottom: Spacing.one,
   },
   badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
     backgroundColor: RutafyColors.brandTint,
     borderWidth: 1,
     borderColor: RutafyColors.brandTintBorder,
@@ -84,21 +72,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,
   },
+  badgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: RutafyColors.success,
+  },
   badgeText: {
     color: RutafyColors.brand,
     fontSize: 12,
     fontWeight: '600',
-  },
-  topActions: { alignItems: 'flex-end', gap: Spacing.one },
-  offlineLink: { paddingVertical: Spacing.one },
-  offlineLinkText: {
-    color: RutafyColors.brand,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  logoutText: {
-    color: RutafyColors.textSecondary,
-    fontSize: 12,
   },
   center: {
     flex: 1,
@@ -107,38 +90,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     gap: Spacing.three,
   },
-  radar: {
-    width: 96,
-    height: 96,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarRing: {
-    position: 'absolute',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: RutafyColors.brandTint,
-    borderWidth: 4,
-    borderColor: 'rgba(42,157,143,0.15)',
-  },
-  radarDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: RutafyColors.brand,
-  },
   title: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
-    color: RutafyColors.textPrimary,
+    color: RutafyColors.navy,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: RutafyColors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
+    maxWidth: 320,
+  },
+  tips: {
+    marginTop: Spacing.two,
+    gap: Spacing.one,
+    alignSelf: 'stretch',
+    maxWidth: 320,
+  },
+  tip: {
+    fontSize: 13,
+    color: RutafyColors.textSecondary,
+    lineHeight: 18,
   },
   footer: {
     paddingHorizontal: Spacing.four,

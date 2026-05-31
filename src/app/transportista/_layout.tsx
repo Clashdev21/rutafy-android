@@ -9,8 +9,8 @@ export default function TransportistaLayout() {
 
   return (
     <TransportistaServicesProvider requesterCompanyId={requesterCompanyId}>
-      <Stack>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
         <Stack.Screen name="crear" options={{ title: 'Nuevo servicio', headerShown: true }} />
         <Stack.Screen name="[id]" options={{ title: 'Detalle', headerShown: true }} />
       </Stack>
