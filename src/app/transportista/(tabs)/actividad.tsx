@@ -7,15 +7,18 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ServiceListItem } from '@/components/services/ServiceListItem';
+import { getTabBarScrollPadding } from '@/constants/tabBarLayout';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { useTransportistaServicesContext } from '@/contexts/TransportistaServicesContext';
 import { Spacing } from '@/constants/theme';
 
 export default function TransportistaActividadScreen() {
   const { services, isLoading, error, refresh } = useTransportistaServicesContext();
+  const insets = useSafeAreaInsets();
+  const listBottom = getTabBarScrollPadding(insets.bottom);
 
   return (
     <View style={styles.container}>
@@ -29,12 +32,13 @@ export default function TransportistaActividadScreen() {
           <ActivityIndicator style={styles.loader} color={RutafyColors.brand} />
         ) : (
           <FlatList
+            style={styles.listFlex}
             data={services}
             keyExtractor={(item) => item.service_id}
             refreshControl={
               <RefreshControl refreshing={isLoading} onRefresh={() => void refresh(false)} />
             }
-            contentContainerStyle={styles.list}
+            contentContainerStyle={[styles.list, { paddingBottom: listBottom }]}
             ListEmptyComponent={
               <Text style={styles.empty}>No hay servicios todavía.</Text>
             }
@@ -61,7 +65,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.three,
   },
   error: { color: RutafyColors.danger, marginBottom: Spacing.two },
-  list: { gap: Spacing.two, paddingBottom: Spacing.six },
+  listFlex: { flex: 1 },
+  list: { gap: Spacing.two, flexGrow: 1 },
   empty: {
     textAlign: 'center',
     paddingVertical: Spacing.four,

@@ -6,9 +6,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ServiceListItem } from '@/components/services/ServiceListItem';
+import { getTabBarScrollPadding } from '@/constants/tabBarLayout';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { useMensajeroOperationsContext } from '@/contexts/MensajeroOperationsContext';
 import { Spacing } from '@/constants/theme';
@@ -18,6 +19,8 @@ export default function MensajeroActividadScreen() {
     useMensajeroOperationsContext();
 
   const busy = loadingMy || loadingOffers || availabilitySyncing;
+  const insets = useSafeAreaInsets();
+  const listBottom = getTabBarScrollPadding(insets.bottom);
 
   return (
     <View style={styles.container}>
@@ -26,12 +29,13 @@ export default function MensajeroActividadScreen() {
         <Text style={styles.subtitle}>Servicios asignados y en curso</Text>
 
         <FlatList
+          style={styles.listFlex}
           data={myServices}
           keyExtractor={(item) => item.service_id}
           refreshControl={
             <RefreshControl refreshing={busy} onRefresh={() => void refreshAll(false)} />
           }
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: listBottom }]}
           ListEmptyComponent={
             loadingMy ? (
               <ActivityIndicator color={RutafyColors.brand} style={styles.loader} />
@@ -39,10 +43,11 @@ export default function MensajeroActividadScreen() {
               <Text style={styles.empty}>No tienes servicios asignados.</Text>
             )
           }
+          ListFooterComponent={
+            <Text style={styles.pollHint}>Actualización automática cada 15 s</Text>
+          }
           renderItem={({ item }) => <ServiceListItem service={item} />}
         />
-
-        <Text style={styles.pollHint}>Actualización automática cada 15 s</Text>
       </SafeAreaView>
     </View>
   );
@@ -57,7 +62,8 @@ const styles = StyleSheet.create({
     color: RutafyColors.textSecondary,
     marginBottom: Spacing.three,
   },
-  list: { gap: Spacing.two, paddingBottom: Spacing.four },
+  listFlex: { flex: 1 },
+  list: { gap: Spacing.two, flexGrow: 1 },
   empty: {
     textAlign: 'center',
     paddingVertical: Spacing.four,
@@ -68,6 +74,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     color: RutafyColors.textSecondary,
-    paddingBottom: Spacing.two,
+    marginTop: Spacing.three,
   },
 });

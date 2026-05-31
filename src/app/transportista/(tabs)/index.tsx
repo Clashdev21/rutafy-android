@@ -1,42 +1,51 @@
 import { type Href, router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TransportistaPhaseHero } from '@/components/transportista/TransportistaPhaseHero';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
+import { getTabBarScrollPadding } from '@/constants/tabBarLayout';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { useTransportistaServicesContext } from '@/contexts/TransportistaServicesContext';
 import { Spacing } from '@/constants/theme';
 
 export default function TransportistaInicioScreen() {
   const { activeService, error } = useTransportistaServicesContext();
+  const insets = useSafeAreaInsets();
+  const scrollBottom = getTabBarScrollPadding(insets.bottom);
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <Text style={styles.title}>Inicio</Text>
-        <Text style={styles.subtitle}>Estado operacional de tu empresa</Text>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottom }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator>
+          <Text style={styles.title}>Inicio</Text>
+          <Text style={styles.subtitle}>Estado operacional de tu empresa</Text>
 
-        <TransportistaPhaseHero activeService={activeService} />
+          <TransportistaPhaseHero activeService={activeService} />
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <RutafyButton
-          label="Crear servicio"
-          onPress={() => router.push('/transportista/crear' as Href)}
-        />
+          <RutafyButton
+            label="Crear servicio"
+            onPress={() => router.push('/transportista/crear' as Href)}
+          />
 
-        {activeService ? (
-          <Pressable
-            style={styles.link}
-            onPress={() =>
-              router.push(`/transportista/${activeService.service_id}` as Href)
-            }>
-            <Text style={styles.linkText}>Ver detalle del servicio activo</Text>
-          </Pressable>
-        ) : null}
+          {activeService ? (
+            <Pressable
+              style={styles.link}
+              onPress={() =>
+                router.push(`/transportista/${activeService.service_id}` as Href)
+              }>
+              <Text style={styles.linkText}>Ver detalle del servicio activo</Text>
+            </Pressable>
+          ) : null}
 
-        <Text style={styles.pollHint}>Actualización automática cada 5 s</Text>
+          <Text style={styles.pollHint}>Actualización automática cada 5 s</Text>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -44,12 +53,12 @@ export default function TransportistaInicioScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
-  safe: {
-    flex: 1,
+  safe: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: {
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.two,
     gap: Spacing.three,
-    paddingBottom: Spacing.four,
   },
   title: { fontSize: 28, fontWeight: '700', color: RutafyColors.textPrimary },
   subtitle: { fontSize: 14, color: RutafyColors.textSecondary },
@@ -57,9 +66,9 @@ const styles = StyleSheet.create({
   link: { alignSelf: 'flex-start' },
   linkText: { color: RutafyColors.brand, fontSize: 14, fontWeight: '600' },
   pollHint: {
-    marginTop: 'auto',
     textAlign: 'center',
     fontSize: 12,
     color: RutafyColors.textSecondary,
+    marginTop: Spacing.two,
   },
 });

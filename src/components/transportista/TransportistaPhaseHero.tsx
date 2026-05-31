@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyHeroCard } from '@/components/rutafy/RutafyHeroCard';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import type { Service } from '@/types/service';
+import {
+  shouldShowTransportistaCancelButton,
+  TRANSPORTISTA_CANCEL_NOT_CONNECTED,
+} from '@/utils/transportistaCancelAction';
 import { shouldShowTransportistaClosePin } from '@/utils/transportistaClosePin';
 import { resolveTransportistaClosePin } from '@/utils/transportistaClosePinStorage';
 
@@ -171,6 +176,8 @@ export function TransportistaPhaseHero({ activeService }: Props) {
     activeService !== null &&
     shouldShowTransportistaClosePin(activeService.status);
 
+  const showCancel = shouldShowTransportistaCancelButton(activeService);
+
   return (
     <RutafyHeroCard>
       <Text style={styles.eyebrow}>{content.eyebrow}</Text>
@@ -178,6 +185,17 @@ export function TransportistaPhaseHero({ activeService }: Props) {
       <Text style={styles.body}>{content.body}</Text>
       {showRoutes ? <RoutePanel service={activeService} /> : null}
       {showClosePin ? <ClosePinPanel pin={closePin} /> : null}
+      {showCancel ? (
+        <View style={styles.cancelSection}>
+          <RutafyButton
+            label="Cancelar servicio"
+            variant="danger"
+            disabled
+            onPress={() => undefined}
+          />
+          <Text style={styles.cancelHint}>{TRANSPORTISTA_CANCEL_NOT_CONNECTED}</Text>
+        </View>
+      ) : null}
     </RutafyHeroCard>
   );
 }
@@ -259,6 +277,16 @@ const styles = StyleSheet.create({
   pinHint: {
     fontSize: 12,
     lineHeight: 18,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  cancelSection: {
+    marginTop: Spacing.two,
+    gap: Spacing.two,
+  },
+  cancelHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
     color: 'rgba(255,255,255,0.85)',
   },
 });

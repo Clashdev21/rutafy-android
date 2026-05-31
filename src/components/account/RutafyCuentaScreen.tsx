@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyCard } from '@/components/rutafy/RutafyCard';
+import { getTabBarScrollPadding } from '@/constants/tabBarLayout';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import type { AuthUser } from '@/types/auth';
@@ -66,12 +67,12 @@ export function RutafyCuentaScreen({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
-  safe: {
-    flex: 1,
+  safe: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: {
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.two,
     gap: Spacing.three,
-    paddingBottom: Spacing.four,
   },
   title: {
     fontSize: 28,
