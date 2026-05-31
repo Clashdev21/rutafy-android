@@ -1,15 +1,27 @@
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
+import * as mensajeroService from '@/services/mensajeroService';
 import type { Service } from '@/types/service';
+import { getApiErrorMessage } from '@/utils/errors';
+import { extractValidClosePinDigits } from '@/utils/transportistaClosePin';
 
 type Props = {
   service: Service;
+  actorId: string;
   disabled?: boolean;
+  onCloseSuccess: () => void | Promise<void>;
 };
 
 function RouteBlock({ label, value }: { label: string; value: string }) {
@@ -21,14 +33,49 @@ function RouteBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function MensajeroInServiceScreen({ service, disabled }: Props) {
+export function MensajeroInServiceScreen({
+  service,
+  actorId,
+  disabled,
+  onCloseSuccess,
+}: Props) {
   const code = getServiceCode(service);
+  const [closePin, setClosePin] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
 
-  const onFinish = () => {
-    Alert.alert(
-      'Finalizar servicio',
-      'El cierre con evidencia fotográfica se conectará en la siguiente fase.',
-    );
+  const pinValid = closePin.trim().length === 4;
+  const controlsDisabled = disabled || closing || !actorId;
+
+  const handleClose = async () => {
+    const pin = extractValidClosePinDigits(closePin.trim());
+    if (!pin) {
+      setValidationError('Ingresa un PIN de cierre de 4 dígitos.');
+      return;
+    }
+
+    setClosing(true);
+    setValidationError(null);
+
+    try {
+      await mensajeroService.closeService(service.service_id, {
+        actor_role: 'mensajero',
+        actor_id: actorId,
+        messenger_id: actorId,
+        close_pin: pin,
+      });
+      setClosePin('');
+      await onCloseSuccess();
+    } catch (e) {
+      const msg = getApiErrorMessage(e, 'No se pudo cerrar el servicio');
+      if (msg === 'invalid_close_pin') {
+        setValidationError('PIN incorrecto.');
+      } else {
+        setValidationError(msg);
+      }
+    } finally {
+      setClosing(false);
+    }
   };
 
   return (
@@ -40,7 +87,9 @@ export function MensajeroInServiceScreen({ service, disabled }: Props) {
             <Text style={styles.liveText}>En ruta</Text>
           </View>
           <Text style={styles.headerTitle}>Servicio en curso</Text>
-          <Text style={styles.headerSubtitle}>Sigue la ruta hasta completar la entrega</Text>
+          <Text style={styles.headerSubtitle}>
+            Ingresa el PIN que te entregó el transportista para finalizar
+          </Text>
         </View>
       </SafeAreaView>
 
@@ -52,17 +101,45 @@ export function MensajeroInServiceScreen({ service, disabled }: Props) {
         <RouteBlock label="RECOGER EN" value={service.origin} />
         <RouteBlock label="ENTREGAR EN" value={service.destination} />
 
+        <View style={styles.pinSection}>
+          <Text style={styles.pinLabel}>PIN de cierre</Text>
+          <TextInput
+            style={styles.pinInput}
+            value={closePin}
+            onChangeText={(text) => {
+              setClosePin(text.replace(/\D/g, '').slice(0, 4));
+              if (validationError) setValidationError(null);
+            }}
+            placeholder="••••"
+            placeholderTextColor={RutafyColors.textSecondary}
+            keyboardType="number-pad"
+            maxLength={4}
+            secureTextEntry
+            editable={!controlsDisabled}
+            accessibilityLabel="PIN de cierre"
+          />
+          <Text style={styles.pinHint}>Solo dígitos. Lo recibes del transportista al entregar.</Text>
+        </View>
+
+        {validationError ? (
+          <Text style={styles.errorText}>{validationError}</Text>
+        ) : null}
+
         <View style={styles.placeholderCard}>
           <Text style={styles.placeholderTitle}>Evidencia de entrega</Text>
           <Text style={styles.placeholderBody}>
-            La captura de foto y confirmación se habilitarán cuando el API de cierre esté
-            conectado.
+            La captura de foto se habilitará en una fase posterior. Puedes cerrar con PIN.
           </Text>
         </View>
       </View>
 
       <SafeAreaView style={styles.footer} edges={['bottom', 'left', 'right']}>
-        <RutafyButton label="Finalizar servicio" onPress={onFinish} disabled={disabled} />
+        <RutafyButton
+          label={closing ? 'Finalizando…' : 'Finalizar servicio'}
+          onPress={() => void handleClose()}
+          disabled={!pinValid || controlsDisabled}
+          loading={closing}
+        />
       </SafeAreaView>
     </View>
   );
@@ -153,6 +230,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: RutafyColors.textPrimary,
     lineHeight: 22,
+  },
+  pinSection: { gap: Spacing.two },
+  pinLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: RutafyColors.textSecondary,
+    textTransform: 'uppercase',
+  },
+  pinInput: {
+    backgroundColor: RutafyColors.surface,
+    borderWidth: 1,
+    borderColor: RutafyColors.border,
+    borderRadius: RutafyRadius.button,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.three,
+    fontSize: 24,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    letterSpacing: 8,
+    textAlign: 'center',
+    color: RutafyColors.navy,
+  },
+  pinHint: {
+    fontSize: 13,
+    color: RutafyColors.textSecondary,
+    lineHeight: 18,
+  },
+  errorText: {
+    fontSize: 14,
+    color: RutafyColors.danger,
+    fontWeight: '500',
   },
   placeholderCard: {
     backgroundColor: RutafyColors.surface,

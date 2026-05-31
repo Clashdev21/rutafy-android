@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useAuth } from '@/auth/useAuth';
 import { MensajeroAssignedScreen } from '@/components/mensajero/MensajeroAssignedScreen';
 import { MensajeroAvailableScreen } from '@/components/mensajero/MensajeroAvailableScreen';
 import { MensajeroInServiceScreen } from '@/components/mensajero/MensajeroInServiceScreen';
@@ -10,6 +11,9 @@ import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 
 export function MensajeroInicioView() {
+  const { user } = useAuth();
+  const actorId = user?.actor_id?.trim() ?? '';
+
   const {
     firstOffer,
     activeService,
@@ -21,6 +25,7 @@ export function MensajeroInicioView() {
     toggleAvailability,
     acceptOffer,
     omitFirstOffer,
+    refreshAll,
   } = useMensajeroOperationsContext();
 
   const controlsDisabled = !canOperate || availabilitySyncing;
@@ -61,7 +66,12 @@ export function MensajeroInicioView() {
       ) : null}
 
       {uiState === 'IN_SERVICE' && activeService ? (
-        <MensajeroInServiceScreen service={activeService} disabled={!canOperate} />
+        <MensajeroInServiceScreen
+          service={activeService}
+          actorId={actorId}
+          disabled={!canOperate}
+          onCloseSuccess={() => refreshAll(false)}
+        />
       ) : null}
     </View>
   );

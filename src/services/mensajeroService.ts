@@ -64,3 +64,24 @@ export async function patchAvailability(
   );
   return data;
 }
+
+export type CloseServicePayload = {
+  actor_role: 'mensajero';
+  actor_id: string;
+  messenger_id: string;
+  close_pin: string;
+};
+
+export async function closeService(serviceId: string, payload: CloseServicePayload) {
+  const { data } = await apiClient.post(
+    SERVICE_ENDPOINTS.close(serviceId),
+    payload,
+  );
+
+  if (data && typeof data === 'object' && 'error' in data) {
+    const err = (data as { error?: string }).error;
+    if (err) throw new Error(err);
+  }
+
+  return data;
+}

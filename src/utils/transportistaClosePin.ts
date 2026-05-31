@@ -37,15 +37,76 @@ export function shouldShowTransportistaClosePin(status: string): boolean {
   );
 }
 
+function pickFromRecord(row: Record<string, unknown>, pinKeys: boolean): unknown {
+  if (pinKeys) {
+    return row.close_pin ?? row.closePin ?? row.close_code ?? null;
+  }
+  const id = String(row.service_id ?? row.id ?? row.serviceId ?? row.uuid ?? '').trim();
+  return id && id !== 'sin-id' ? id : null;
+}
+
 export function pickClosePinFromCreateResponse(data: unknown): unknown {
   if (!data || typeof data !== 'object') return null;
   const row = data as Record<string, unknown>;
-  return row.close_pin ?? row.closePin ?? null;
+  const direct = pickFromRecord(row, true);
+  if (direct != null) return direct;
+
+  for (const key of ['service', 'data', 'result'] as const) {
+    const nested = row[key];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const fromNested = pickFromRecord(nested as Record<string, unknown>, true);
+      if (fromNested != null) return fromNested;
+    }
+  }
+  return null;
 }
 
 export function pickServiceIdFromCreateResponse(data: unknown): string | null {
   if (!data || typeof data !== 'object') return null;
   const row = data as Record<string, unknown>;
-  const id = String(row.service_id ?? row.id ?? row.serviceId ?? '').trim();
-  return id && id !== 'sin-id' ? id : null;
+  const direct = pickFromRecord(row, false);
+  if (typeof direct === 'string') return direct;
+
+  for (const key of ['service', 'data', 'result'] as const) {
+    const nested = row[key];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const fromNested = pickFromRecord(nested as Record<string, unknown>, false);
+      if (typeof fromNested === 'string') return fromNested;
+    }
+  }
+  return null;
+}
+
+/** Log de auditoría temporal para inspeccionar respuesta de POST /v1/services. */
+export function auditCreateServiceResponse(data: unknown): void {
+  console.log('[create-service-response]', JSON.stringify(data, null, 2));
+
+  if (!data || typeof data !== 'object') {
+    console.log('[create-service-audit]', { root: 'not-an-object' });
+    return;
+  }
+
+  const row = data as Record<string, unknown>;
+  const rootKeys = Object.keys(row);
+  const nestedService =
+    row.service && typeof row.service === 'object' ? Object.keys(row.service as object) : null;
+  const nestedData =
+    row.data && typeof row.data === 'object' ? Object.keys(row.data as object) : null;
+
+  console.log('[create-service-audit]', {
+    rootKeys,
+    hasClosePin: 'close_pin' in row,
+    hasClosePinCamel: 'closePin' in row,
+    hasCloseCode: 'close_code' in row,
+    close_pin: row.close_pin ?? null,
+    closePin: row.closePin ?? null,
+    close_code: row.close_code ?? null,
+    service_id: row.service_id ?? null,
+    id: row.id ?? null,
+    nestedServiceKeys: nestedService,
+    nestedDataKeys: nestedData,
+    pickedServiceId: pickServiceIdFromCreateResponse(data),
+    pickedClosePin: pickClosePinFromCreateResponse(data),
+    pickedClosePinValid: extractValidClosePinDigits(pickClosePinFromCreateResponse(data)),
+  });
 }

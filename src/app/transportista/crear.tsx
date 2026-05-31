@@ -23,6 +23,7 @@ import type { RutafyNode } from '@/types/node';
 import { getApiErrorMessage } from '@/utils/errors';
 import { buildCreateServicePayloadFromNodes, hasValidNodeCoords } from '@/utils/nodes';
 import {
+  auditCreateServiceResponse,
   pickClosePinFromCreateResponse,
   pickServiceIdFromCreateResponse,
 } from '@/utils/transportistaClosePin';
@@ -122,6 +123,7 @@ export default function TransportistaCrearScreen() {
         nodeReference,
       });
       const created = await transportistaService.createService(payload);
+      auditCreateServiceResponse(created);
       const serviceId = pickServiceIdFromCreateResponse(created);
       if (serviceId) {
         await persistTransportistaClosePinIfValid(
