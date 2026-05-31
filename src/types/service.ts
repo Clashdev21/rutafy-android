@@ -66,6 +66,8 @@ export type CreateServiceResponse = {
   service_code?: string;
   serviceCode?: string;
   code?: string;
+  close_pin?: string;
+  closePin?: string;
   error?: string;
   message?: string;
 };

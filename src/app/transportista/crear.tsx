@@ -22,6 +22,11 @@ import * as transportistaService from '@/services/transportistaService';
 import type { RutafyNode } from '@/types/node';
 import { getApiErrorMessage } from '@/utils/errors';
 import { buildCreateServicePayloadFromNodes, hasValidNodeCoords } from '@/utils/nodes';
+import {
+  pickClosePinFromCreateResponse,
+  pickServiceIdFromCreateResponse,
+} from '@/utils/transportistaClosePin';
+import { persistTransportistaClosePinIfValid } from '@/utils/transportistaClosePinStorage';
 
 export default function TransportistaCrearScreen() {
   const { user } = useAuth();
@@ -116,7 +121,14 @@ export default function TransportistaCrearScreen() {
         destinationNode,
         nodeReference,
       });
-      await transportistaService.createService(payload);
+      const created = await transportistaService.createService(payload);
+      const serviceId = pickServiceIdFromCreateResponse(created);
+      if (serviceId) {
+        await persistTransportistaClosePinIfValid(
+          serviceId,
+          pickClosePinFromCreateResponse(created),
+        );
+      }
       await refresh();
       router.back();
     } catch (e) {

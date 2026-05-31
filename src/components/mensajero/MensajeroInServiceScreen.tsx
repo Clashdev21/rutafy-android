@@ -1,10 +1,8 @@
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getServiceClosePin } from '@/components/mensajero/serviceMeta';
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
-import { RutafyCard } from '@/components/rutafy/RutafyCard';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import type { Service } from '@/types/service';
@@ -25,7 +23,6 @@ function RouteBlock({ label, value }: { label: string; value: string }) {
 
 export function MensajeroInServiceScreen({ service, disabled }: Props) {
   const code = getServiceCode(service);
-  const closePin = getServiceClosePin(service);
 
   const onFinish = () => {
     Alert.alert(
@@ -54,14 +51,6 @@ export function MensajeroInServiceScreen({ service, disabled }: Props) {
         </View>
         <RouteBlock label="RECOGER EN" value={service.origin} />
         <RouteBlock label="ENTREGAR EN" value={service.destination} />
-
-        {closePin ? (
-          <RutafyCard style={styles.pinCard}>
-            <Text style={styles.pinLabel}>PIN de cierre</Text>
-            <Text style={styles.pinValue}>{closePin}</Text>
-            <Text style={styles.pinHint}>Solicítalo al destinatario al entregar</Text>
-          </RutafyCard>
-        ) : null}
 
         <View style={styles.placeholderCard}>
           <Text style={styles.placeholderTitle}>Evidencia de entrega</Text>
@@ -165,21 +154,6 @@ const styles = StyleSheet.create({
     color: RutafyColors.textPrimary,
     lineHeight: 22,
   },
-  pinCard: { gap: Spacing.one },
-  pinLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: RutafyColors.textSecondary,
-    textTransform: 'uppercase',
-  },
-  pinValue: {
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: 4,
-    color: RutafyColors.navy,
-    fontFamily: 'monospace',
-  },
-  pinHint: { fontSize: 13, color: RutafyColors.textSecondary },
   placeholderCard: {
     backgroundColor: RutafyColors.surface,
     borderRadius: RutafyRadius.card,

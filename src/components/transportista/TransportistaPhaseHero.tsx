@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { RutafyHeroCard } from '@/components/rutafy/RutafyHeroCard';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import type { Service } from '@/types/service';
+import { shouldShowTransportistaClosePin } from '@/utils/transportistaClosePin';
+import { resolveTransportistaClosePin } from '@/utils/transportistaClosePinStorage';
 
 export type TransportistaPhase =
   | 'IDLE'
@@ -94,6 +97,18 @@ function getPhaseContent(phase: TransportistaPhase): PhaseContent {
   }
 }
 
+function ClosePinPanel({ pin }: { pin: string }) {
+  return (
+    <View style={styles.pinPanel}>
+      <Text style={styles.pinTitle}>PIN de cierre</Text>
+      <Text style={styles.pinValue}>{pin}</Text>
+      <Text style={styles.pinHint}>
+        Entrégalo al mensajero solo cuando el servicio haya sido completado.
+      </Text>
+    </View>
+  );
+}
+
 function RoutePanel({ service }: { service: Service }) {
   return (
     <View style={styles.routePanel}>
@@ -121,6 +136,40 @@ export function TransportistaPhaseHero({ activeService }: Props) {
   const phase = resolveTransportistaPhase(activeService);
   const content = getPhaseContent(phase);
   const showRoutes = activeService && phase !== 'IDLE';
+  const [closePin, setClosePin] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPin = async () => {
+      if (!activeService?.service_id) {
+        setClosePin(null);
+        return;
+      }
+
+      const status = String(activeService.status ?? '');
+      const pin = await resolveTransportistaClosePin(
+        activeService.service_id,
+        status,
+        null,
+      );
+
+      if (!cancelled) {
+        setClosePin(pin);
+      }
+    };
+
+    void loadPin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeService?.service_id, activeService?.status]);
+
+  const showClosePin =
+    closePin !== null &&
+    activeService !== null &&
+    shouldShowTransportistaClosePin(activeService.status);
 
   return (
     <RutafyHeroCard>
@@ -128,6 +177,7 @@ export function TransportistaPhaseHero({ activeService }: Props) {
       <Text style={styles.title}>{content.title}</Text>
       <Text style={styles.body}>{content.body}</Text>
       {showRoutes ? <RoutePanel service={activeService} /> : null}
+      {showClosePin ? <ClosePinPanel pin={closePin} /> : null}
     </RutafyHeroCard>
   );
 }
@@ -183,5 +233,32 @@ const styles = StyleSheet.create({
   },
   mono: {
     fontFamily: 'monospace',
+  },
+  pinPanel: {
+    marginTop: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: RutafyColors.heroGlassBorder,
+    backgroundColor: RutafyColors.heroGlass,
+    padding: Spacing.three,
+    gap: Spacing.one,
+  },
+  pinTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: RutafyColors.white,
+  },
+  pinValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    letterSpacing: 6,
+    textAlign: 'center',
+    color: RutafyColors.white,
+  },
+  pinHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.85)',
   },
 });
