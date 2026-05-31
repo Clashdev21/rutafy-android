@@ -4,42 +4,36 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth/useAuth';
+import { MensajeroAvailableScreen } from '@/components/mensajero/MensajeroAvailableScreen';
+import { MensajeroOfflineScreen } from '@/components/mensajero/MensajeroOfflineScreen';
+import { MensajeroOfferScreen } from '@/components/mensajero/MensajeroOfferScreen';
 import { ServiceListItem } from '@/components/services/ServiceListItem';
 import { ServiceStatusBadge } from '@/components/services/ServiceStatusBadge';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { RutafyCard } from '@/components/rutafy/RutafyCard';
+import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import { useMensajeroOperations } from '@/hooks/useMensajeroOperations';
 import { getStatusLabel } from '@/utils/serviceStatus';
-
-const UI_STATE_LABELS = {
-  OFFLINE: 'Desconectado',
-  AVAILABLE: 'Disponible',
-  OFFER: 'Oferta pendiente',
-  ASSIGNED: 'Asignado',
-  IN_SERVICE: 'En servicio',
-} as const;
 
 export default function MensajeroHomeScreen() {
   const { user, logout, isLoading: authLoading } = useAuth();
   const actorId = user?.actor_id?.trim() ?? null;
 
   const {
-    isOnline,
-    availabilitySyncing,
     myServices,
-    availableServices,
     firstOffer,
     activeService,
     uiState,
     loadingMy,
     loadingOffers,
     claimingServiceId,
+    availabilitySyncing,
     error,
     canOperate,
     toggleAvailability,
@@ -49,99 +43,81 @@ export default function MensajeroHomeScreen() {
   } = useMensajeroOperations(actorId);
 
   const busy = loadingMy || loadingOffers || availabilitySyncing;
+  const controlsDisabled = !canOperate || availabilitySyncing;
+
+  if (uiState === 'OFFLINE') {
+    return (
+      <>
+        {!canOperate ? <SessionBanner message="La sesión no tiene actor_id válido para operar." /> : null}
+        {error ? <ErrorBanner message={error} /> : null}
+        <MensajeroOfflineScreen
+          onToggleOnline={() => void toggleAvailability()}
+          loading={availabilitySyncing}
+          disabled={controlsDisabled}
+        />
+      </>
+    );
+  }
+
+  if (uiState === 'AVAILABLE') {
+    return (
+      <>
+        {!canOperate ? <SessionBanner message="La sesión no tiene actor_id válido para operar." /> : null}
+        {error ? <ErrorBanner message={error} /> : null}
+        <MensajeroAvailableScreen
+          onToggleOffline={() => void toggleAvailability()}
+          onLogout={() => void logout()}
+          loading={availabilitySyncing}
+          disabled={controlsDisabled}
+        />
+      </>
+    );
+  }
+
+  if (uiState === 'OFFER' && firstOffer) {
+    return (
+      <>
+        {error ? <ErrorBanner message={error} /> : null}
+        <MensajeroOfferScreen
+          offer={firstOffer}
+          onAccept={() => void acceptOffer(firstOffer.service_id)}
+          onOmit={omitFirstOffer}
+          isAccepting={claimingServiceId === firstOffer.service_id}
+          disabled={!canOperate}
+        />
+      </>
+    );
+  }
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <ThemedText type="title">Mensajero</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {user?.name ?? user?.phone ?? 'Sesión activa'}
-          </ThemedText>
-          <ThemedText type="smallBold">
-            Estado: {UI_STATE_LABELS[uiState]}
-          </ThemedText>
+          <Text style={styles.title}>Mensajero</Text>
+          <Text style={styles.subtitle}>{user?.name ?? user?.phone ?? 'Sesión activa'}</Text>
         </View>
 
         {!canOperate ? (
-          <ThemedText themeColor="textSecondary" style={styles.warn}>
-            La sesión no tiene actor_id (UUID) válido para operar.
-          </ThemedText>
+          <Text style={styles.warn}>La sesión no tiene actor_id (UUID) válido para operar.</Text>
         ) : null}
 
-        {error ? (
-          <ThemedText themeColor="textSecondary" style={styles.error}>
-            {error}
-          </ThemedText>
-        ) : null}
-
-        <Pressable
-          style={[styles.availabilityBtn, isOnline && styles.availabilityOn]}
-          onPress={() => void toggleAvailability()}
-          disabled={!canOperate || availabilitySyncing}>
-          {availabilitySyncing ? (
-            <ActivityIndicator color={isOnline ? '#fff' : '#0F172A'} />
-          ) : (
-            <ThemedText style={[styles.availabilityLabel, isOnline && styles.availabilityLabelOn]}>
-              {isOnline ? 'En línea — recibiendo ofertas' : 'Desconectado'}
-            </ThemedText>
-          )}
-        </Pressable>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {activeService ? (
-          <View style={styles.section}>
-            <ThemedText type="subtitle">Servicio activo</ThemedText>
-            <View style={styles.activeCard}>
-              <View style={styles.activeHeader}>
-                <ThemedText type="smallBold">{activeService.service_code}</ThemedText>
-                <ServiceStatusBadge status={activeService.status} />
-              </View>
-              <ThemedText type="small" themeColor="textSecondary">
-                {getStatusLabel(activeService.status)} · {activeService.origin}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                → {activeService.destination}
-              </ThemedText>
+          <RutafyCard style={styles.activeCard}>
+            <Text style={styles.sectionTitle}>Servicio activo</Text>
+            <View style={styles.activeHeader}>
+              <Text style={styles.code}>{activeService.service_code}</Text>
+              <ServiceStatusBadge status={activeService.status} />
             </View>
-          </View>
+            <Text style={styles.meta}>
+              {getStatusLabel(activeService.status)} · {activeService.origin}
+            </Text>
+            <Text style={styles.meta}>→ {activeService.destination}</Text>
+          </RutafyCard>
         ) : null}
 
-        {isOnline && firstOffer ? (
-          <View style={styles.section}>
-            <ThemedText type="subtitle">Oferta activa</ThemedText>
-            <ServiceListItem service={firstOffer} />
-            <View style={styles.offerActions}>
-              <Pressable
-                style={[styles.acceptBtn, claimingServiceId && styles.disabled]}
-                onPress={() => void acceptOffer(firstOffer.service_id)}
-                disabled={Boolean(claimingServiceId)}>
-                {claimingServiceId === firstOffer.service_id ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText style={styles.acceptLabel}>Aceptar</ThemedText>
-                )}
-              </Pressable>
-              <Pressable style={styles.omitBtn} onPress={omitFirstOffer}>
-                <ThemedText style={styles.omitLabel}>Omitir</ThemedText>
-              </Pressable>
-            </View>
-            {availableServices.length > 1 ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                +{availableServices.length - 1} oferta(s) más en cola
-              </ThemedText>
-            ) : null}
-          </View>
-        ) : null}
-
-        {isOnline && !firstOffer && !loadingOffers ? (
-          <ThemedText themeColor="textSecondary" style={styles.hint}>
-            Sin ofertas activas por ahora.
-          </ThemedText>
-        ) : null}
-
-        <ThemedText type="subtitle" style={styles.listTitle}>
-          Mis servicios ({myServices.length})
-        </ThemedText>
+        <Text style={styles.listTitle}>Mis servicios ({myServices.length})</Text>
 
         <FlatList
           data={myServices}
@@ -152,11 +128,9 @@ export default function MensajeroHomeScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             loadingMy ? (
-              <ActivityIndicator style={styles.loader} />
+              <ActivityIndicator style={styles.loader} color={RutafyColors.brand} />
             ) : (
-              <ThemedText themeColor="textSecondary" style={styles.empty}>
-                No tienes servicios asignados.
-              </ThemedText>
+              <Text style={styles.empty}>No tienes servicios asignados.</Text>
             )
           }
           renderItem={({ item }) => <ServiceListItem service={item} />}
@@ -166,81 +140,82 @@ export default function MensajeroHomeScreen() {
           style={[styles.logoutBtn, authLoading && styles.disabled]}
           onPress={() => void logout()}
           disabled={authLoading}>
-          <ThemedText style={styles.logoutLabel}>Cerrar sesión</ThemedText>
+          <Text style={styles.logoutLabel}>Cerrar sesión</Text>
         </Pressable>
 
-        <ThemedText type="small" themeColor="textSecondary" style={styles.pollHint}>
-          Actualización automática cada 15 s
-        </ThemedText>
+        <Text style={styles.pollHint}>Actualización automática cada 15 s</Text>
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
 
+function SessionBanner({ message }: { message: string }) {
+  return (
+    <View style={bannerStyles.wrap}>
+      <Text style={bannerStyles.text}>{message}</Text>
+    </View>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <View style={[bannerStyles.wrap, bannerStyles.error]}>
+      <Text style={bannerStyles.text}>{message}</Text>
+    </View>
+  );
+}
+
+const bannerStyles = StyleSheet.create({
+  wrap: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+  },
+  error: { backgroundColor: '#FEE2E2' },
+  text: { fontSize: 13, color: RutafyColors.textPrimary },
+});
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
   safe: { flex: 1, paddingHorizontal: Spacing.four },
-  header: { gap: Spacing.one, marginBottom: Spacing.three },
-  warn: { marginBottom: Spacing.two },
-  error: { marginBottom: Spacing.two },
-  availabilityBtn: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingVertical: Spacing.three,
-    alignItems: 'center',
-    marginBottom: Spacing.three,
-  },
-  availabilityOn: { backgroundColor: '#2A9D8F', borderColor: '#2A9D8F' },
-  availabilityLabel: { fontWeight: '600' },
-  availabilityLabelOn: { color: '#fff' },
-  section: { gap: Spacing.two, marginBottom: Spacing.three },
-  activeCard: {
-    borderWidth: 1,
-    borderColor: '#2A9D8F',
-    borderRadius: 12,
-    padding: Spacing.three,
-    gap: Spacing.one,
-    backgroundColor: '#F0FDFA',
-  },
+  header: { gap: Spacing.one, marginBottom: Spacing.three, paddingTop: Spacing.two },
+  title: { fontSize: 28, fontWeight: '700', color: RutafyColors.textPrimary },
+  subtitle: { fontSize: 14, color: RutafyColors.textSecondary },
+  warn: { marginBottom: Spacing.two, color: RutafyColors.textSecondary, fontSize: 14 },
+  errorText: { marginBottom: Spacing.two, color: RutafyColors.danger, fontSize: 14 },
+  activeCard: { marginBottom: Spacing.three, gap: Spacing.two },
+  sectionTitle: { fontSize: 16, fontWeight: '600', color: RutafyColors.textPrimary },
   activeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  offerActions: { flexDirection: 'row', gap: Spacing.two },
-  acceptBtn: {
-    flex: 1,
-    backgroundColor: '#2A9D8F',
-    borderRadius: 12,
-    paddingVertical: Spacing.two,
-    alignItems: 'center',
+  code: { fontSize: 14, fontWeight: '600', color: RutafyColors.textPrimary },
+  meta: { fontSize: 13, color: RutafyColors.textSecondary },
+  listTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: RutafyColors.textPrimary,
+    marginBottom: Spacing.two,
   },
-  acceptLabel: { color: '#fff', fontWeight: '600' },
-  omitBtn: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    justifyContent: 'center',
-  },
-  omitLabel: { fontWeight: '600' },
-  hint: { marginBottom: Spacing.three, textAlign: 'center' },
-  listTitle: { marginBottom: Spacing.two },
   listContent: { gap: Spacing.two, paddingBottom: Spacing.two },
-  empty: { textAlign: 'center', paddingVertical: Spacing.four },
+  empty: { textAlign: 'center', paddingVertical: Spacing.four, color: RutafyColors.textSecondary },
   loader: { marginVertical: Spacing.four },
   logoutBtn: {
     alignSelf: 'flex-start',
     marginTop: Spacing.two,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: RutafyColors.borderMuted,
     borderRadius: 12,
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
   },
-  logoutLabel: { fontWeight: '600' },
+  logoutLabel: { fontWeight: '600', color: RutafyColors.textPrimary },
   disabled: { opacity: 0.6 },
-  pollHint: { textAlign: 'center', marginVertical: Spacing.two },
+  pollHint: {
+    textAlign: 'center',
+    marginVertical: Spacing.two,
+    fontSize: 12,
+    color: RutafyColors.textSecondary,
+  },
 });

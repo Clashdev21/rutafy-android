@@ -5,15 +5,16 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth/useAuth';
 import { ServiceListItem } from '@/components/services/ServiceListItem';
-import { ServiceStatusBadge } from '@/components/services/ServiceStatusBadge';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { TransportistaPhaseHero } from '@/components/transportista/TransportistaPhaseHero';
+import { RutafyButton } from '@/components/rutafy/RutafyButton';
+import { RutafyColors } from '@/constants/rutafyTheme';
 import { useTransportistaServicesContext } from '@/contexts/TransportistaServicesContext';
 import { Spacing } from '@/constants/theme';
 
@@ -23,53 +24,44 @@ export default function TransportistaHomeScreen() {
     useTransportistaServicesContext();
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <ThemedText type="title">Transportista</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {user?.name ?? user?.phone ?? 'Sesión activa'}
-          </ThemedText>
+          <Text style={styles.title}>Transportista</Text>
+          <Text style={styles.subtitle}>{user?.name ?? user?.phone ?? 'Sesión activa'}</Text>
         </View>
 
-        {error ? (
-          <ThemedText style={styles.error} themeColor="textSecondary">
-            {error}
-          </ThemedText>
-        ) : null}
+        <TransportistaPhaseHero activeService={activeService} />
 
-        {activeService ? (
-          <View style={styles.activeCard}>
-            <ThemedText type="smallBold">Servicio activo</ThemedText>
-            <ServiceListItem
-              service={activeService}
-              onPress={() =>
-                router.push(`/transportista/${activeService.service_id}` as Href)
-              }
-            />
-          </View>
-        ) : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <View style={styles.actions}>
-          <Pressable
-            style={styles.primaryBtn}
-            onPress={() => router.push('/transportista/crear' as Href)}>
-            <ThemedText style={styles.primaryBtnLabel}>Nuevo servicio</ThemedText>
-          </Pressable>
-          <Pressable
-            style={[styles.secondaryBtn, authLoading && styles.disabled]}
+          <RutafyButton
+            label="Nuevo servicio"
+            onPress={() => router.push('/transportista/crear' as Href)}
+          />
+          <RutafyButton
+            label="Cerrar sesión"
+            variant="secondary"
             onPress={() => void logout()}
-            disabled={authLoading}>
-            <ThemedText style={styles.secondaryBtnLabel}>Cerrar sesión</ThemedText>
-          </Pressable>
+            disabled={authLoading}
+          />
         </View>
 
-        <ThemedText type="subtitle" style={styles.listTitle}>
-          Mis servicios ({services.length})
-        </ThemedText>
+        {activeService ? (
+          <Pressable
+            style={styles.activeLink}
+            onPress={() =>
+              router.push(`/transportista/${activeService.service_id}` as Href)
+            }>
+            <Text style={styles.activeLinkText}>Ver detalle del servicio activo</Text>
+          </Pressable>
+        ) : null}
+
+        <Text style={styles.listTitle}>Mis servicios ({services.length})</Text>
 
         {isLoading && services.length === 0 ? (
-          <ActivityIndicator style={styles.loader} />
+          <ActivityIndicator style={styles.loader} color={RutafyColors.brand} />
         ) : (
           <FlatList
             data={services}
@@ -79,9 +71,7 @@ export default function TransportistaHomeScreen() {
             }
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
-              <ThemedText themeColor="textSecondary" style={styles.empty}>
-                No hay servicios todavía.
-              </ThemedText>
+              <Text style={styles.empty}>No hay servicios todavía.</Text>
             }
             renderItem={({ item }) => (
               <ServiceListItem
@@ -92,40 +82,44 @@ export default function TransportistaHomeScreen() {
           />
         )}
 
-        <ThemedText type="small" themeColor="textSecondary" style={styles.pollHint}>
-          Actualización automática cada 5 s
-        </ThemedText>
+        <Text style={styles.pollHint}>Actualización automática cada 5 s</Text>
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
   safe: { flex: 1, paddingHorizontal: Spacing.four },
-  header: { gap: Spacing.one, marginBottom: Spacing.three },
-  error: { marginBottom: Spacing.two },
-  activeCard: { gap: Spacing.two, marginBottom: Spacing.three },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginBottom: Spacing.three },
-  primaryBtn: {
-    backgroundColor: '#2A9D8F',
-    borderRadius: 12,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
+  header: { gap: Spacing.one, marginBottom: Spacing.three, paddingTop: Spacing.two },
+  title: { fontSize: 28, fontWeight: '700', color: RutafyColors.textPrimary },
+  subtitle: { fontSize: 14, color: RutafyColors.textSecondary },
+  error: { marginTop: Spacing.two, color: RutafyColors.danger, fontSize: 14 },
+  actions: { gap: Spacing.two, marginTop: Spacing.three, marginBottom: Spacing.two },
+  activeLink: { marginBottom: Spacing.three },
+  activeLinkText: {
+    color: RutafyColors.brand,
+    fontSize: 14,
+    fontWeight: '600',
   },
-  primaryBtnLabel: { color: '#fff', fontWeight: '600' },
-  secondaryBtn: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
+  listTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: RutafyColors.textPrimary,
+    marginBottom: Spacing.two,
   },
-  secondaryBtnLabel: { fontWeight: '600' },
-  disabled: { opacity: 0.6 },
-  listTitle: { marginBottom: Spacing.two },
   listContent: { gap: Spacing.two, paddingBottom: Spacing.six },
-  empty: { textAlign: 'center', paddingVertical: Spacing.four },
+  empty: {
+    textAlign: 'center',
+    paddingVertical: Spacing.four,
+    color: RutafyColors.textSecondary,
+  },
   loader: { marginTop: Spacing.four },
-  pollHint: { textAlign: 'center', marginTop: Spacing.two, marginBottom: Spacing.two },
+  pollHint: {
+    textAlign: 'center',
+    marginTop: Spacing.two,
+    marginBottom: Spacing.two,
+    fontSize: 12,
+    color: RutafyColors.textSecondary,
+  },
 });
