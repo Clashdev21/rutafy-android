@@ -11,6 +11,8 @@ export const SERVICE_ENDPOINTS = {
   create: '/v1/services',
   close: (serviceId: string) =>
     `/v1/services/${encodeURIComponent(serviceId)}/close`,
+  start: (serviceId: string) =>
+    `/v1/services/${encodeURIComponent(serviceId)}/start`,
   nodes: '/v1/nodes',
 } as const;
 

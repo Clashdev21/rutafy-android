@@ -62,7 +62,12 @@ export function MensajeroInicioView() {
       ) : null}
 
       {uiState === 'ASSIGNED' && activeService ? (
-        <MensajeroAssignedScreen service={activeService} disabled={!canOperate} />
+        <MensajeroAssignedScreen
+          service={activeService}
+          actorId={actorId}
+          disabled={!canOperate}
+          onStartSuccess={() => refreshAll(false)}
+        />
       ) : null}
 
       {uiState === 'IN_SERVICE' && activeService ? (

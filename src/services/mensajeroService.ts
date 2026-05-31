@@ -65,6 +65,27 @@ export async function patchAvailability(
   return data;
 }
 
+export type StartServicePayload = {
+  actor_role: 'mensajero';
+  actor_id: string;
+};
+
+export async function startService(serviceId: string, actorId: string) {
+  const payload: StartServicePayload = {
+    actor_role: 'mensajero',
+    actor_id: actorId,
+  };
+
+  const { data } = await apiClient.post(SERVICE_ENDPOINTS.start(serviceId), payload);
+
+  if (data && typeof data === 'object' && 'error' in data) {
+    const err = (data as { error?: string }).error;
+    if (err) throw new Error(err);
+  }
+
+  return data;
+}
+
 export type CloseServicePayload = {
   actor_role: 'mensajero';
   actor_id: string;

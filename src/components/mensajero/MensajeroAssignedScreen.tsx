@@ -1,15 +1,20 @@
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
+import * as mensajeroService from '@/services/mensajeroService';
 import type { Service } from '@/types/service';
+import { getApiErrorMessage } from '@/utils/errors';
 
 type Props = {
   service: Service;
+  actorId: string;
   disabled?: boolean;
+  onStartSuccess: () => void | Promise<void>;
 };
 
 function RouteBlock({ label, value }: { label: string; value: string }) {
@@ -21,14 +26,30 @@ function RouteBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function MensajeroAssignedScreen({ service, disabled }: Props) {
+export function MensajeroAssignedScreen({
+  service,
+  actorId,
+  disabled,
+  onStartSuccess,
+}: Props) {
   const code = getServiceCode(service);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const onStart = () => {
-    Alert.alert(
-      'Iniciar servicio',
-      'La conexión con el API de inicio estará disponible en la siguiente fase. Por ahora puedes revisar la ruta asignada.',
-    );
+  const controlsDisabled = disabled || starting || !actorId;
+
+  const handleStart = async () => {
+    setStarting(true);
+    setError(null);
+
+    try {
+      await mensajeroService.startService(service.service_id, actorId);
+      await onStartSuccess();
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'No se pudo iniciar el servicio'));
+    } finally {
+      setStarting(false);
+    }
   };
 
   return (
@@ -50,8 +71,13 @@ export function MensajeroAssignedScreen({ service, disabled }: Props) {
       </View>
 
       <SafeAreaView style={styles.footer} edges={['bottom', 'left', 'right']}>
-        <RutafyButton label="Iniciar servicio" onPress={onStart} disabled={disabled} />
-        <Text style={styles.hint}>El inicio en ruta se habilitará cuando el API esté conectado.</Text>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        <RutafyButton
+          label={starting ? 'Iniciando…' : 'Iniciar servicio'}
+          onPress={() => void handleStart()}
+          disabled={controlsDisabled}
+          loading={starting}
+        />
       </SafeAreaView>
     </View>
   );
@@ -129,10 +155,9 @@ const styles = StyleSheet.create({
     borderTopColor: RutafyColors.border,
     backgroundColor: RutafyColors.surface,
   },
-  hint: {
-    fontSize: 12,
-    color: RutafyColors.textSecondary,
+  errorText: {
+    fontSize: 14,
+    color: RutafyColors.danger,
     textAlign: 'center',
-    lineHeight: 18,
   },
 });
