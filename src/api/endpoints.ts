@@ -9,6 +9,7 @@ export const SERVICE_ENDPOINTS = {
   list: '/v1/services',
   my: '/v1/services/my',
   create: '/v1/services',
+  nodes: '/v1/nodes',
 } as const;
 
 export const MESSENGER_ENDPOINTS = {

@@ -30,12 +30,22 @@ export type Service = {
   meta?: Record<string, unknown> | null;
 };
 
-export type CreateServiceMinimalPayload = {
+/** Paridad operacional con TransportistaPanel.buildPayload (modo NODE, sin GPS). */
+export type CreateServicePayload = {
   requester_company_id: string;
   service_type: string;
   request_mode: 'NOW';
   origin: string;
   destination: string;
+  origin_node_id: string;
+  destination_node_id: string;
+  origin_lat: number;
+  origin_lng: number;
+  destination_lat: number;
+  destination_lng: number;
+  origin_sub_location?: string;
+  operational_instructions?: string;
+  meta?: { node_reference: string };
 };
 
 export type ServicesListResponse = {

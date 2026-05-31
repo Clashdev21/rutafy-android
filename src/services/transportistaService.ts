@@ -1,10 +1,6 @@
 import { apiClient } from '@/api/client';
 import { SERVICE_ENDPOINTS } from '@/api/endpoints';
-import type {
-  CreateServiceMinimalPayload,
-  CreateServiceResponse,
-  ServicesListResponse,
-} from '@/types/service';
+import type { CreateServicePayload, CreateServiceResponse, ServicesListResponse } from '@/types/service';
 import { normalizeServicesList } from '@/utils/normalizeService';
 
 export async function listServices(requesterCompanyId: string, limit = 100) {
@@ -22,7 +18,7 @@ export async function listServices(requesterCompanyId: string, limit = 100) {
   return normalizeServicesList(data);
 }
 
-export async function createServiceMinimal(payload: CreateServiceMinimalPayload) {
+export async function createService(payload: CreateServicePayload) {
   const { data } = await apiClient.post<CreateServiceResponse>(
     SERVICE_ENDPOINTS.create,
     payload,
