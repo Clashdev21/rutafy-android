@@ -30,3 +30,16 @@ export async function createService(payload: CreateServicePayload) {
 
   return data;
 }
+
+export async function cancelService(serviceId: string, requesterCompanyId: string) {
+  const { data } = await apiClient.post(SERVICE_ENDPOINTS.cancel(serviceId), {
+    actor_role: 'transportista',
+    actor_id: requesterCompanyId,
+  });
+
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
+}

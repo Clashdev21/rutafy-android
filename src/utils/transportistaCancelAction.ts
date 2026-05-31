@@ -1,15 +1,11 @@
 import type { Service } from '@/types/service';
 
-export const TRANSPORTISTA_CANCEL_NOT_CONNECTED =
-  'Cancelación no conectada todavía';
-
+/** Paridad con web: TransportistaPanel TRANSPORTISTA_CANCELABLE_STATUSES */
 const CANCEL_ACTION_STATUSES = new Set([
   'REQUESTED',
-  'OFFERED',
-  'CLAIMED',
-  'STARTED',
   'PENDING',
   'SEARCHING',
+  'OFFERED',
 ]);
 
 export function shouldShowTransportistaCancelButton(

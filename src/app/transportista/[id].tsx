@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
@@ -7,11 +7,10 @@ import { ServiceStatusBadge } from '@/components/services/ServiceStatusBadge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { RutafyColors } from '@/constants/rutafyTheme';
+import { useTransportistaServiceCancel } from '@/hooks/useTransportistaServiceCancel';
 import { useTransportistaServicesContext } from '@/contexts/TransportistaServicesContext';
-import {
-  shouldShowTransportistaCancelButton,
-  TRANSPORTISTA_CANCEL_NOT_CONNECTED,
-} from '@/utils/transportistaCancelAction';
+import { shouldShowTransportistaCancelButton } from '@/utils/transportistaCancelAction';
 import { getStatusLabel } from '@/utils/serviceStatus';
 
 export default function TransportistaDetalleScreen() {
@@ -21,6 +20,8 @@ export default function TransportistaDetalleScreen() {
   const insets = useSafeAreaInsets();
   const scrollBottom = Math.max(insets.bottom, Spacing.four) + Spacing.six;
   const showCancel = shouldShowTransportistaCancelButton(service);
+  const { confirmAndCancel, isCancelling, cancelError, canOperate } =
+    useTransportistaServiceCancel();
 
   if (!service) {
     return (
@@ -31,6 +32,8 @@ export default function TransportistaDetalleScreen() {
       </ThemedView>
     );
   }
+
+  const cancelling = isCancelling(service.service_id);
 
   return (
     <ThemedView style={styles.container}>
@@ -56,14 +59,15 @@ export default function TransportistaDetalleScreen() {
         {showCancel ? (
           <View style={styles.cancelSection}>
             <RutafyButton
-              label="Cancelar servicio"
+              label={cancelling ? 'Cancelando solicitud…' : 'Cancelar servicio'}
               variant="danger"
-              disabled
-              onPress={() => undefined}
+              disabled={!canOperate || cancelling}
+              loading={cancelling}
+              onPress={() => confirmAndCancel(service)}
             />
-            <ThemedText type="small" themeColor="textSecondary" style={styles.cancelHint}>
-              {TRANSPORTISTA_CANCEL_NOT_CONNECTED}
-            </ThemedText>
+            {cancelError ? (
+              <Text style={styles.cancelError}>{cancelError}</Text>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -86,7 +90,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.four },
   content: { gap: Spacing.three },
   cancelSection: { gap: Spacing.two, marginTop: Spacing.two },
-  cancelHint: { textAlign: 'center' },
+  cancelError: {
+    textAlign: 'center',
+    fontSize: 13,
+    color: RutafyColors.danger,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

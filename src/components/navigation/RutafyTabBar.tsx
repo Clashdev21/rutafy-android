@@ -30,7 +30,10 @@ export function RutafyTabBar({ state, descriptors, navigation }: RutafyTabBarPro
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+    <View
+      style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}
+      pointerEvents="box-none"
+      accessibilityRole="tablist">
       {state.routes.map((route: TabRoute, index: number) => {
         const focused = state.index === index;
         const { options } = descriptors[route.key];
@@ -54,7 +57,8 @@ export function RutafyTabBar({ state, descriptors, navigation }: RutafyTabBarPro
                 navigation.navigate(route.name, route.params);
               }
             }}
-            style={styles.tab}>
+            style={styles.tab}
+            pointerEvents="auto">
             <View style={[styles.indicator, focused && styles.indicatorFocused]} />
             <Text style={[styles.label, focused && styles.labelFocused]}>{label}</Text>
           </Pressable>

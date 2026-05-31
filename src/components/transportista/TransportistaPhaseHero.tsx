@@ -5,11 +5,9 @@ import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyHeroCard } from '@/components/rutafy/RutafyHeroCard';
 import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
+import { useTransportistaServiceCancel } from '@/hooks/useTransportistaServiceCancel';
 import type { Service } from '@/types/service';
-import {
-  shouldShowTransportistaCancelButton,
-  TRANSPORTISTA_CANCEL_NOT_CONNECTED,
-} from '@/utils/transportistaCancelAction';
+import { shouldShowTransportistaCancelButton } from '@/utils/transportistaCancelAction';
 import { shouldShowTransportistaClosePin } from '@/utils/transportistaClosePin';
 import { resolveTransportistaClosePin } from '@/utils/transportistaClosePinStorage';
 
@@ -142,6 +140,8 @@ export function TransportistaPhaseHero({ activeService }: Props) {
   const content = getPhaseContent(phase);
   const showRoutes = activeService && phase !== 'IDLE';
   const [closePin, setClosePin] = useState<string | null>(null);
+  const { confirmAndCancel, isCancelling, cancelError, canOperate } =
+    useTransportistaServiceCancel();
 
   useEffect(() => {
     let cancelled = false;
@@ -185,15 +185,20 @@ export function TransportistaPhaseHero({ activeService }: Props) {
       <Text style={styles.body}>{content.body}</Text>
       {showRoutes ? <RoutePanel service={activeService} /> : null}
       {showClosePin ? <ClosePinPanel pin={closePin} /> : null}
-      {showCancel ? (
+      {showCancel && activeService ? (
         <View style={styles.cancelSection}>
           <RutafyButton
-            label="Cancelar servicio"
+            label={
+              isCancelling(activeService.service_id)
+                ? 'Cancelando solicitud…'
+                : 'Cancelar servicio'
+            }
             variant="danger"
-            disabled
-            onPress={() => undefined}
+            disabled={!canOperate || isCancelling(activeService.service_id)}
+            loading={isCancelling(activeService.service_id)}
+            onPress={() => confirmAndCancel(activeService)}
           />
-          <Text style={styles.cancelHint}>{TRANSPORTISTA_CANCEL_NOT_CONNECTED}</Text>
+          {cancelError ? <Text style={styles.cancelError}>{cancelError}</Text> : null}
         </View>
       ) : null}
     </RutafyHeroCard>
@@ -283,10 +288,10 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
     gap: Spacing.two,
   },
-  cancelHint: {
+  cancelError: {
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
-    color: 'rgba(255,255,255,0.85)',
+    color: '#FECACA',
   },
 });

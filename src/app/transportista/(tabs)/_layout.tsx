@@ -9,7 +9,7 @@ export default function TransportistaTabsLayout() {
       tabBar={(props) => <RutafyTabBar {...(props as RutafyTabBarProps)} />}
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: RutafyColors.surfaceMuted },
+        sceneStyle: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
       }}>
       <Tabs.Screen name="index" options={{ title: 'Inicio' }} />
       <Tabs.Screen name="actividad" options={{ title: 'Actividad' }} />
