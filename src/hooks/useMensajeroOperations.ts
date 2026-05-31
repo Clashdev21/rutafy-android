@@ -39,8 +39,8 @@ export function useMensajeroOperations(actorId: string | null) {
     }
   }, [actorId, canOperate]);
 
-  const refreshOffers = useCallback(async (silent = false) => {
-    if (!canOperate || !actorId || !isOnline) {
+  const refreshOffers = useCallback(async (silent = false, forceOnline = false) => {
+    if (!canOperate || !actorId || (!isOnline && !forceOnline)) {
       setAvailableServices([]);
       setOfferIdByServiceId({});
       return;
@@ -58,12 +58,16 @@ export function useMensajeroOperations(actorId: string | null) {
     }
   }, [actorId, canOperate, isOnline]);
 
-  const refreshAll = useCallback(async (silent = false) => {
-    await Promise.all([refreshMyServices(silent), refreshOffers(silent)]);
-  }, [refreshMyServices, refreshOffers]);
+  const refreshAll = useCallback(
+    async (silent = false, forceOnline = false) => {
+      await Promise.all([refreshMyServices(silent), refreshOffers(silent, forceOnline)]);
+    },
+    [refreshMyServices, refreshOffers],
+  );
 
   const activeService = useMemo(() => pickMensajeroActiveService(myServices), [myServices]);
   const hasActiveOperational = isMensajeroOperationalActive(activeService);
+  const effectiveIsOnline = isOnline || hasActiveOperational;
   const firstOffer = availableServices[0] ?? null;
 
   const pollEnabled = canOperate;
@@ -145,13 +149,28 @@ export function useMensajeroOperations(actorId: string | null) {
   }, []);
 
   const uiState = useMemo(() => {
-    if (!isOnline && !hasActiveOperational) return 'OFFLINE' as const;
+    if (!effectiveIsOnline) return 'OFFLINE' as const;
     if (activeService?.status === 'STARTED') return 'IN_SERVICE' as const;
     if (activeService?.status === 'CLAIMED') return 'ASSIGNED' as const;
     if (firstOffer) return 'OFFER' as const;
-    if (isOnline) return 'AVAILABLE' as const;
-    return 'OFFLINE' as const;
-  }, [isOnline, hasActiveOperational, activeService, firstOffer]);
+    return 'AVAILABLE' as const;
+  }, [effectiveIsOnline, activeService, firstOffer]);
+
+  const handleCloseSuccess = useCallback(async () => {
+    if (!actorId || !canOperate) return;
+
+    setAvailabilitySyncing(true);
+    try {
+      await mensajeroService.patchAvailability(actorId, 'AVAILABLE');
+      setIsOnline(true);
+      setError(null);
+      await refreshAll(false, true);
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'No se pudo restaurar la disponibilidad'));
+    } finally {
+      setAvailabilitySyncing(false);
+    }
+  }, [actorId, canOperate, refreshAll]);
 
   return {
     isOnline,
@@ -169,6 +188,7 @@ export function useMensajeroOperations(actorId: string | null) {
     toggleAvailability,
     acceptOffer,
     omitFirstOffer,
+    handleCloseSuccess,
     refreshAll,
     refreshMyServices,
     refreshOffers,

@@ -25,6 +25,7 @@ export function MensajeroInicioView() {
     toggleAvailability,
     acceptOffer,
     omitFirstOffer,
+    handleCloseSuccess,
     refreshAll,
   } = useMensajeroOperationsContext();
 
@@ -75,7 +76,7 @@ export function MensajeroInicioView() {
           service={activeService}
           actorId={actorId}
           disabled={!canOperate}
-          onCloseSuccess={() => refreshAll(false)}
+          onCloseSuccess={() => void handleCloseSuccess()}
         />
       ) : null}
     </View>
