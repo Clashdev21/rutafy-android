@@ -13,6 +13,8 @@ export const SERVICE_ENDPOINTS = {
     `/v1/services/${encodeURIComponent(serviceId)}/close`,
   start: (serviceId: string) =>
     `/v1/services/${encodeURIComponent(serviceId)}/start`,
+  evidences: (serviceId: string) =>
+    `/v1/services/${encodeURIComponent(serviceId)}/evidences`,
   nodes: '/v1/nodes',
 } as const;
 
