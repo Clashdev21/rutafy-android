@@ -1,3 +1,6 @@
+import { File } from 'expo-file-system';
+import { fetch as expoFetch } from 'expo/fetch';
+
 import { API_BASE_URL } from '@/config/env';
 import { tokenStorage } from '@/auth/tokenStorage';
 import { SERVICE_ENDPOINTS } from '@/api/endpoints';
@@ -47,53 +50,73 @@ export async function uploadServiceEvidence(params: {
   actorId: string;
   asset: EvidenceImageAsset;
 }): Promise<void> {
-  const validation = validateEvidenceAsset(params.asset);
-  if (validation) throw new Error(validation);
+  try {
+    const validation = validateEvidenceAsset(params.asset);
+    if (validation) throw new Error(validation);
 
-  const token = await tokenStorage.getAccessToken();
-  if (!token) {
-    throw new Error('Sesión expirada. Inicia sesión de nuevo.');
-  }
-
-  const traceId = buildTraceId('evidence');
-  const formData = new FormData();
-  formData.append('actor_role', 'mensajero');
-  formData.append('actor_id', params.actorId);
-  formData.append('kind', 'ENTREGA_DOCUMENTO');
-  formData.append('taken_at_client', new Date().toISOString());
-  formData.append('file', {
-    uri: params.asset.uri,
-    name: params.asset.fileName,
-    type: params.asset.mimeType || 'image/jpeg',
-  } as unknown as Blob);
-
-  const url = `${API_BASE_URL}${SERVICE_ENDPOINTS.evidences(params.serviceId)}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'x-trace-id': traceId,
-    },
-    body: formData,
-  });
-
-  const text = await response.text();
-  let parsed: unknown = null;
-  if (text) {
-    try {
-      parsed = JSON.parse(text) as unknown;
-    } catch {
-      parsed = { message: text };
+    const token = await tokenStorage.getAccessToken();
+    if (!token) {
+      throw new Error('Sesión expirada. Inicia sesión de nuevo.');
     }
-  }
 
-  if (!response.ok) {
-    throw new Error(parseUploadErrorMessage(response.status, parsed));
-  }
+    console.log('[evidence-asset]', params.asset);
 
-  if (parsed && typeof parsed === 'object' && 'error' in (parsed as object)) {
-    const err = (parsed as { error?: string }).error;
-    if (err) throw new Error(err);
+    const fileName =
+      params.asset.fileName || `evidence-${Date.now()}.jpg`;
+    const mimeType = params.asset.mimeType || 'image/jpeg';
+
+    const file = new File(params.asset.uri);
+
+    const traceId = buildTraceId('evidence');
+    const formData = new FormData();
+    formData.append('actor_role', 'mensajero');
+    formData.append('actor_id', params.actorId);
+    formData.append('kind', 'ENTREGA_DOCUMENTO');
+    formData.append('taken_at_client', new Date().toISOString());
+    formData.append('file', file);
+
+    const url = `${API_BASE_URL}${SERVICE_ENDPOINTS.evidences(params.serviceId)}`;
+
+    console.log('[evidence-upload]', {
+      serviceId: params.serviceId,
+      actorId: params.actorId,
+      uri: params.asset.uri,
+      type: mimeType,
+      size: params.asset.fileSize,
+      fileName,
+    });
+
+    const response = await expoFetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-trace-id': traceId,
+      },
+      body: formData,
+    });
+
+    const text = await response.text();
+    let parsed: unknown = null;
+    if (text) {
+      try {
+        parsed = JSON.parse(text) as unknown;
+      } catch {
+        parsed = { message: text };
+      }
+    }
+
+    console.log('[evidence-response]', parsed);
+
+    if (!response.ok) {
+      throw new Error(parseUploadErrorMessage(response.status, parsed));
+    }
+
+    if (parsed && typeof parsed === 'object' && 'error' in (parsed as object)) {
+      const err = (parsed as { error?: string }).error;
+      if (err) throw new Error(err);
+    }
+  } catch (error) {
+    console.log('[evidence-error]', error);
+    throw error;
   }
 }
