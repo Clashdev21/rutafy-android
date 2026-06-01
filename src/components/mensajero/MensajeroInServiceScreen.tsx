@@ -29,6 +29,8 @@ type Props = {
   service: Service;
   actorId: string;
   disabled?: boolean;
+  locationLabel: string;
+  locationActive: boolean;
   onCloseSuccess: () => void | Promise<void>;
 };
 
@@ -63,6 +65,8 @@ export function MensajeroInServiceScreen({
   service,
   actorId,
   disabled,
+  locationLabel,
+  locationActive,
   onCloseSuccess,
 }: Props) {
   const code = getServiceCode(service);
@@ -221,6 +225,13 @@ export function MensajeroInServiceScreen({
           <Text style={styles.headerSubtitle}>
             Sube evidencia de entrega y finaliza con el PIN del transportista
           </Text>
+          <Text
+            style={[
+              styles.locationStatus,
+              locationActive ? styles.locationActive : styles.locationInactive,
+            ]}>
+            {locationLabel}
+          </Text>
         </View>
       </SafeAreaView>
 
@@ -367,6 +378,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: RutafyColors.textSecondary,
     lineHeight: 20,
+  },
+  locationStatus: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  locationActive: {
+    color: RutafyColors.success,
+  },
+  locationInactive: {
+    color: RutafyColors.danger,
   },
   scroll: { flex: 1 },
   body: {

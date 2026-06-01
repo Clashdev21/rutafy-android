@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 
+import { useMessengerLocationHeartbeat } from '@/hooks/useMessengerLocationHeartbeat';
 import { usePolling } from '@/hooks/usePolling';
 import * as mensajeroService from '@/services/mensajeroService';
 import type { Service } from '@/types/service';
@@ -12,7 +13,10 @@ import {
 
 const POLL_MS = 15000;
 
-export function useMensajeroOperations(actorId: string | null) {
+export function useMensajeroOperations(
+  actorId: string | null,
+  appRole: 'ADMIN' | 'TRANSPORTISTA' | 'MENSAJERO' | null,
+) {
   const [isOnline, setIsOnline] = useState(false);
   const [availabilitySyncing, setAvailabilitySyncing] = useState(false);
   const [myServices, setMyServices] = useState<Service[]>([]);
@@ -156,6 +160,12 @@ export function useMensajeroOperations(actorId: string | null) {
     return 'AVAILABLE' as const;
   }, [effectiveIsOnline, activeService, firstOffer]);
 
+  const locationHeartbeat = useMessengerLocationHeartbeat({
+    enabled: canOperate && appRole === 'MENSAJERO',
+    isOnline: effectiveIsOnline,
+    uiState,
+  });
+
   const handleCloseSuccess = useCallback(async () => {
     if (!actorId || !canOperate) return;
 
@@ -185,6 +195,8 @@ export function useMensajeroOperations(actorId: string | null) {
     claimingServiceId,
     error,
     canOperate,
+    gpsStatus: locationHeartbeat.gpsStatus,
+    hasLocationFix: locationHeartbeat.hasLocationFix,
     toggleAvailability,
     acceptOffer,
     omitFirstOffer,

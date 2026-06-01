@@ -8,11 +8,12 @@ const MensajeroOperationsContext = createContext<MensajeroOperationsValue | null
 
 type Props = {
   actorId: string | null;
+  appRole: 'ADMIN' | 'TRANSPORTISTA' | 'MENSAJERO' | null;
   children: ReactNode;
 };
 
-export function MensajeroOperationsProvider({ actorId, children }: Props) {
-  const value = useMensajeroOperations(actorId);
+export function MensajeroOperationsProvider({ actorId, appRole, children }: Props) {
+  const value = useMensajeroOperations(actorId, appRole);
   return (
     <MensajeroOperationsContext.Provider value={value}>
       {children}

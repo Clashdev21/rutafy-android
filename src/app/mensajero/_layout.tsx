@@ -6,9 +6,10 @@ import { MensajeroOperationsProvider } from '@/contexts/MensajeroOperationsConte
 export default function MensajeroLayout() {
   const { user } = useAuth();
   const actorId = user?.actor_id?.trim() ?? null;
+  const appRole = user?.appRole ?? null;
 
   return (
-    <MensajeroOperationsProvider actorId={actorId}>
+    <MensajeroOperationsProvider actorId={actorId} appRole={appRole}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
       </Stack>

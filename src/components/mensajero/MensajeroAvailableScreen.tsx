@@ -10,9 +10,17 @@ type Props = {
   onToggleOffline: () => void;
   loading?: boolean;
   disabled?: boolean;
+  locationLabel: string;
+  locationActive: boolean;
 };
 
-export function MensajeroAvailableScreen({ onToggleOffline, loading, disabled }: Props) {
+export function MensajeroAvailableScreen({
+  onToggleOffline,
+  loading,
+  disabled,
+  locationLabel,
+  locationActive,
+}: Props) {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -34,6 +42,9 @@ export function MensajeroAvailableScreen({ onToggleOffline, loading, disabled }:
         <View style={styles.tips}>
           <Text style={styles.tip}>• Mantén la app abierta para responder rápido</Text>
           <Text style={styles.tip}>• Las ofertas expiran en pocos minutos</Text>
+          <Text style={[styles.tip, locationActive ? styles.locationActive : styles.locationInactive]}>
+            • {locationLabel}
+          </Text>
         </View>
       </View>
 
@@ -113,6 +124,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: RutafyColors.textSecondary,
     lineHeight: 18,
+  },
+  locationActive: {
+    color: RutafyColors.success,
+    fontWeight: '600',
+  },
+  locationInactive: {
+    color: RutafyColors.danger,
+    fontWeight: '600',
   },
   footer: {
     paddingHorizontal: Spacing.four,

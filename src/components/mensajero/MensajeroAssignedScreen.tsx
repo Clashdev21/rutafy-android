@@ -14,6 +14,8 @@ type Props = {
   service: Service;
   actorId: string;
   disabled?: boolean;
+  locationLabel: string;
+  locationActive: boolean;
   onStartSuccess: () => void | Promise<void>;
 };
 
@@ -30,6 +32,8 @@ export function MensajeroAssignedScreen({
   service,
   actorId,
   disabled,
+  locationLabel,
+  locationActive,
   onStartSuccess,
 }: Props) {
   const code = getServiceCode(service);
@@ -68,6 +72,13 @@ export function MensajeroAssignedScreen({
         </View>
         <RouteBlock label="RECOGER EN" value={service.origin} />
         <RouteBlock label="ENTREGAR EN" value={service.destination} />
+        <Text
+          style={[
+            styles.locationStatus,
+            locationActive ? styles.locationActive : styles.locationInactive,
+          ]}>
+          {locationLabel}
+        </Text>
       </View>
 
       <SafeAreaView style={styles.footer} edges={['bottom', 'left', 'right']}>
@@ -146,6 +157,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: RutafyColors.textPrimary,
     lineHeight: 22,
+  },
+  locationStatus: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  locationActive: {
+    color: RutafyColors.success,
+  },
+  locationInactive: {
+    color: RutafyColors.danger,
   },
   footer: {
     paddingHorizontal: Spacing.four,

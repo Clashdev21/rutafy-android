@@ -65,6 +65,21 @@ export async function patchAvailability(
   return data;
 }
 
+export type MessengerHeartbeatPayload = {
+  lat?: number;
+  lng?: number;
+  availability_status?: 'AVAILABLE' | 'OFFLINE';
+  battery_level?: number | null;
+};
+
+export async function postHeartbeat(payload: MessengerHeartbeatPayload) {
+  const { data } = await apiClient.post(
+    MESSENGER_ENDPOINTS.heartbeat,
+    payload,
+  );
+  return data;
+}
+
 export type StartServicePayload = {
   actor_role: 'mensajero';
   actor_id: string;

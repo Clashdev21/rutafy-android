@@ -25,6 +25,7 @@ export const MESSENGER_ENDPOINTS = {
     `/v1/messengers/${encodeURIComponent(messengerId)}/offers/active`,
   availability: (messengerId: string) =>
     `/v1/messengers/${encodeURIComponent(messengerId)}/availability`,
+  heartbeat: '/v1/mensajero/heartbeat',
 } as const;
 
 export const OFFER_ENDPOINTS = {

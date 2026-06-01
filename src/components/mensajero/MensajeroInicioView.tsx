@@ -22,6 +22,8 @@ export function MensajeroInicioView() {
     availabilitySyncing,
     error,
     canOperate,
+    gpsStatus,
+    hasLocationFix,
     toggleAvailability,
     acceptOffer,
     omitFirstOffer,
@@ -30,6 +32,13 @@ export function MensajeroInicioView() {
   } = useMensajeroOperationsContext();
 
   const controlsDisabled = !canOperate || availabilitySyncing;
+  const locationLabel =
+    gpsStatus === 'active' && hasLocationFix
+      ? 'Ubicación activa'
+      : gpsStatus === 'permission-pending'
+        ? 'Permiso de ubicación pendiente'
+        : 'Ubicación no disponible';
+  const locationActive = gpsStatus === 'active' && hasLocationFix;
 
   return (
     <View style={styles.wrap}>
@@ -49,6 +58,8 @@ export function MensajeroInicioView() {
           onToggleOffline={() => void toggleAvailability()}
           loading={availabilitySyncing}
           disabled={controlsDisabled}
+          locationLabel={locationLabel}
+          locationActive={locationActive}
         />
       ) : null}
 
@@ -67,6 +78,8 @@ export function MensajeroInicioView() {
           service={activeService}
           actorId={actorId}
           disabled={!canOperate}
+          locationLabel={locationLabel}
+          locationActive={locationActive}
           onStartSuccess={() => refreshAll(false)}
         />
       ) : null}
@@ -76,6 +89,8 @@ export function MensajeroInicioView() {
           service={activeService}
           actorId={actorId}
           disabled={!canOperate}
+          locationLabel={locationLabel}
+          locationActive={locationActive}
           onCloseSuccess={() => void handleCloseSuccess()}
         />
       ) : null}
