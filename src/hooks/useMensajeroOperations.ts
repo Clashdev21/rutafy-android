@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { syncBackgroundTracking } from '@/services/backgroundLocationService';
 import { useMessengerLocationHeartbeat } from '@/hooks/useMessengerLocationHeartbeat';
 import { usePolling } from '@/hooks/usePolling';
 import * as mensajeroService from '@/services/mensajeroService';
@@ -165,6 +166,21 @@ export function useMensajeroOperations(
     isOnline: effectiveIsOnline,
     uiState,
   });
+
+  const shouldEnableBackgroundTracking =
+    canOperate &&
+    appRole === 'MENSAJERO' &&
+    (uiState === 'ASSIGNED' || uiState === 'IN_SERVICE');
+
+  useEffect(() => {
+    void syncBackgroundTracking(shouldEnableBackgroundTracking);
+  }, [shouldEnableBackgroundTracking]);
+
+  useEffect(() => {
+    return () => {
+      void syncBackgroundTracking(false);
+    };
+  }, []);
 
   const handleCloseSuccess = useCallback(async () => {
     if (!actorId || !canOperate) return;
