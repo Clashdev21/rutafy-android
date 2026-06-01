@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 
@@ -11,6 +11,8 @@ import {
 } from '@/services/locationService';
 
 const HEARTBEAT_INTERVAL_MS = 30000;
+const HEARTBEAT_THROTTLE_MS = 25000;
+const MIN_COORD_DELTA = 0.0001;
 
 type OperationalUiState = 'OFFLINE' | 'AVAILABLE' | 'OFFER' | 'ASSIGNED' | 'IN_SERVICE';
 type GpsIndicatorStatus = 'active' | 'unavailable' | 'permission-pending';
@@ -31,36 +33,142 @@ export function useMessengerLocationHeartbeat(params: {
   uiState: OperationalUiState;
 }) {
   const [status, setStatus] = useState<GpsIndicatorStatus>('permission-pending');
-  const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
-  const latestPositionRef = useRef<GpsPosition | null>(null);
-  const watchSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const [hasLocationFix, setHasLocationFix] = useState(false);
 
-  const canRun = useMemo(
-    () =>
-      params.enabled &&
-      isForeground &&
-      (params.uiState === 'AVAILABLE' ||
-        params.uiState === 'ASSIGNED' ||
-        params.uiState === 'IN_SERVICE'),
-    [params.enabled, isForeground, params.uiState],
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const watchSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const isSendingRef = useRef(false);
+  const lastSentAtRef = useRef(0);
+  const hasSentInitialRef = useRef(false);
+  const isOnlineRef = useRef(params.isOnline);
+  const uiStateRef = useRef<OperationalUiState>(params.uiState);
+  const appStateRef = useRef(AppState.currentState);
+  const lastFixRef = useRef<GpsPosition | null>(null);
+  const canRunRef = useRef(false);
+  const statusRef = useRef<GpsIndicatorStatus>('permission-pending');
+  const hasLocationFixRef = useRef(false);
+
+  const canRun =
+    params.enabled &&
+    (params.uiState === 'AVAILABLE' ||
+      params.uiState === 'ASSIGNED' ||
+      params.uiState === 'IN_SERVICE');
+
+  useEffect(() => {
+    isOnlineRef.current = params.isOnline;
+  }, [params.isOnline]);
+
+  useEffect(() => {
+    uiStateRef.current = params.uiState;
+  }, [params.uiState]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    hasLocationFixRef.current = hasLocationFix;
+  }, [hasLocationFix]);
+
+  const sendHeartbeat = useCallback(
+    async (reason: 'initial' | 'interval' | 'resume') => {
+      if (isSendingRef.current) return;
+
+      const now = Date.now();
+      const isInitial = reason === 'initial';
+
+      if (isInitial && hasSentInitialRef.current) return;
+      if (!isInitial && now - lastSentAtRef.current < HEARTBEAT_THROTTLE_MS) {
+        console.log('[heartbeat-skip-throttle]', {
+          reason,
+          msSinceLast: now - lastSentAtRef.current,
+        });
+        return;
+      }
+
+      if (isInitial) {
+        hasSentInitialRef.current = true;
+      }
+
+      isSendingRef.current = true;
+      try {
+        const payload: MessengerHeartbeatPayload = {};
+        const availability = resolveAvailabilityStatus(isOnlineRef.current, uiStateRef.current);
+        if (availability !== undefined) {
+          payload.availability_status = availability;
+        }
+
+        if (hasValidLatLng(lastFixRef.current)) {
+          payload.lat = lastFixRef.current.lat;
+          payload.lng = lastFixRef.current.lng;
+        }
+
+        console.log('[heartbeat-payload]', { reason, payload });
+        const response = await postHeartbeat(payload);
+        lastSentAtRef.current = Date.now();
+        console.log('[heartbeat-response]', response);
+      } catch (error) {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        if (status === 429) {
+          console.warn('[heartbeat-error]', { reason, type: 'rate-limit', status });
+          return;
+        }
+        console.warn('[heartbeat-error]', { reason, error });
+      } finally {
+        isSendingRef.current = false;
+      }
+    },
+    [],
   );
+
+  const stopHeartbeatLoop = useCallback(() => {
+    if (intervalRef.current != null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      console.log('[heartbeat-stop]');
+    }
+  }, []);
+
+  const startHeartbeatLoop = useCallback(() => {
+    if (intervalRef.current != null) return;
+    console.log('[heartbeat-start]');
+    if (!hasSentInitialRef.current) {
+      void sendHeartbeat('initial');
+    }
+    intervalRef.current = setInterval(() => {
+      void sendHeartbeat('interval');
+    }, HEARTBEAT_INTERVAL_MS);
+  }, [sendHeartbeat]);
+
+  useEffect(() => {
+    canRunRef.current = canRun;
+  }, [canRun]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      setIsForeground(nextState === 'active');
+      appStateRef.current = nextState;
+      if (nextState === 'active') {
+        if (canRunRef.current) {
+          startHeartbeatLoop();
+          void sendHeartbeat('resume');
+        }
+        return;
+      }
+      stopHeartbeatLoop();
     });
     return () => sub.remove();
-  }, []);
+  }, [sendHeartbeat, startHeartbeatLoop, stopHeartbeatLoop]);
 
   useEffect(() => {
     if (!canRun) {
+      stopHeartbeatLoop();
       watchSubscriptionRef.current?.remove();
       watchSubscriptionRef.current = null;
+      hasSentInitialRef.current = false;
       return;
     }
 
     let cancelled = false;
-
     const startLocation = async () => {
       try {
         const permission = await requestForegroundGpsPermission();
@@ -69,21 +177,28 @@ export function useMessengerLocationHeartbeat(params: {
 
         if (permission !== 'granted') {
           setStatus('permission-pending');
+          if (hasLocationFixRef.current) {
+            setHasLocationFix(false);
+          }
           return;
         }
 
         const current = await getCurrentGpsPosition();
         if (cancelled) return;
-        latestPositionRef.current = current;
+        lastFixRef.current = current;
+        if (!hasLocationFixRef.current) {
+          setHasLocationFix(true);
+        }
         setStatus('active');
         console.log('[gps-position]', current);
 
         watchSubscriptionRef.current?.remove();
+        console.log('[gps-watch-start]');
         watchSubscriptionRef.current = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.Balanced,
             timeInterval: 10000,
-            distanceInterval: 0,
+            distanceInterval: 10,
           },
           (update) => {
             const next = {
@@ -92,68 +207,54 @@ export function useMessengerLocationHeartbeat(params: {
               accuracyM: Number.isFinite(update.coords.accuracy) ? update.coords.accuracy : null,
               timestamp: update.timestamp,
             };
-            latestPositionRef.current = next;
-            setStatus('active');
+            const prev = lastFixRef.current;
+            const changedEnough =
+              !prev ||
+              Math.abs(next.lat - prev.lat) >= MIN_COORD_DELTA ||
+              Math.abs(next.lng - prev.lng) >= MIN_COORD_DELTA;
+
+            lastFixRef.current = next;
+            if (changedEnough || statusRef.current !== 'active') {
+              setStatus('active');
+            }
+            if (!hasLocationFixRef.current) {
+              setHasLocationFix(true);
+            }
             console.log('[gps-position]', next);
           },
         );
       } catch (error) {
         if (cancelled) return;
         setStatus('unavailable');
-        console.log('[heartbeat-error]', error);
+        console.warn('[heartbeat-error]', error);
       }
     };
 
     void startLocation();
+    if (appStateRef.current === 'active') {
+      startHeartbeatLoop();
+    }
 
     return () => {
       cancelled = true;
       watchSubscriptionRef.current?.remove();
       watchSubscriptionRef.current = null;
+      console.log('[gps-watch-stop]');
+      stopHeartbeatLoop();
     };
-  }, [canRun]);
+  }, [canRun, sendHeartbeat, startHeartbeatLoop, stopHeartbeatLoop]);
 
   useEffect(() => {
-    if (!canRun) return;
-
-    let disposed = false;
-
-    const sendHeartbeat = async () => {
-      try {
-        const payload: MessengerHeartbeatPayload = {};
-        const availability = resolveAvailabilityStatus(params.isOnline, params.uiState);
-        if (availability !== undefined) {
-          payload.availability_status = availability;
-        }
-
-        if (hasValidLatLng(latestPositionRef.current)) {
-          payload.lat = latestPositionRef.current.lat;
-          payload.lng = latestPositionRef.current.lng;
-        }
-
-        console.log('[heartbeat-payload]', payload);
-        const response = await postHeartbeat(payload);
-        if (disposed) return;
-        console.log('[heartbeat-response]', response);
-      } catch (error) {
-        if (disposed) return;
-        console.log('[heartbeat-error]', error);
-      }
-    };
-
-    void sendHeartbeat();
-    const timer = setInterval(() => {
-      void sendHeartbeat();
-    }, HEARTBEAT_INTERVAL_MS);
-
     return () => {
-      disposed = true;
-      clearInterval(timer);
+      stopHeartbeatLoop();
+      watchSubscriptionRef.current?.remove();
+      watchSubscriptionRef.current = null;
+      console.log('[gps-watch-stop]');
     };
-  }, [canRun, params.isOnline, params.uiState]);
+  }, [stopHeartbeatLoop]);
 
   return {
     gpsStatus: status,
-    hasLocationFix: hasValidLatLng(latestPositionRef.current),
+    hasLocationFix,
   };
 }
