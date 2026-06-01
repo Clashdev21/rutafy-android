@@ -27,6 +27,13 @@ export type Service = {
   created_at?: string;
   updated_at?: string;
   expires_at?: string | null;
+  estimated_route_distance_km?: number | null;
+  estimated_route_duration_minutes?: number | null;
+  eta_pickup_at?: string | null;
+  eta_delivery_at?: string | null;
+  messenger_location_updated_at?: string | null;
+  messenger_lat?: number | null;
+  messenger_lng?: number | null;
   meta?: Record<string, unknown> | null;
 };
 

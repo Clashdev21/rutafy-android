@@ -7,6 +7,12 @@ function pickStr(value: unknown): string | null {
   return s.length ? s : null;
 }
 
+function pickNum(value: unknown): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function formatRouteEndpoint(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value.trim()) return value.trim();
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -28,6 +34,16 @@ function normalizeStatus(raw: unknown): ServiceStatus {
   return s as ServiceStatus;
 }
 
+function extractMessengerRaw(row: Record<string, unknown>): Record<string, unknown> | null {
+  const candidates = [row.assigned_messenger, row.messenger, row.mensajero];
+  for (const value of candidates) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
 export function normalizeServiceRow(raw: unknown): Service | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
@@ -45,6 +61,26 @@ export function normalizeServiceRow(raw: unknown): Service | null {
   const request_mode =
     String(row.request_mode ?? 'NOW').toUpperCase() === 'SCHEDULED' ? 'SCHEDULED' : 'NOW';
 
+  const messenger = extractMessengerRaw(row);
+  const messenger_lat =
+    pickNum(messenger?.current_lat) ??
+    pickNum(messenger?.currentLat) ??
+    pickNum(messenger?.lat) ??
+    pickNum(messenger?.map_lat) ??
+    pickNum(messenger?.mapLat);
+  const messenger_lng =
+    pickNum(messenger?.current_lng) ??
+    pickNum(messenger?.currentLng) ??
+    pickNum(messenger?.lng) ??
+    pickNum(messenger?.map_lng) ??
+    pickNum(messenger?.mapLng);
+  const messenger_location_updated_at =
+    pickStr(messenger?.location_updated_at) ??
+    pickStr(messenger?.locationUpdatedAt) ??
+    pickStr(row.messenger_location_updated_at) ??
+    pickStr(row.location_updated_at) ??
+    pickStr(row.locationUpdatedAt);
+
   return {
     service_id,
     status,
@@ -59,6 +95,13 @@ export function normalizeServiceRow(raw: unknown): Service | null {
     created_at: pickStr(row.created_at) ?? pickStr(row.createdAt) ?? undefined,
     updated_at: pickStr(row.updated_at) ?? pickStr(row.updatedAt) ?? undefined,
     expires_at: pickStr(row.expires_at),
+    estimated_route_distance_km: pickNum(row.estimated_route_distance_km),
+    estimated_route_duration_minutes: pickNum(row.estimated_route_duration_minutes),
+    eta_pickup_at: pickStr(row.eta_pickup_at),
+    eta_delivery_at: pickStr(row.eta_delivery_at),
+    messenger_location_updated_at,
+    messenger_lat,
+    messenger_lng,
     meta: row.meta && typeof row.meta === 'object' ? (row.meta as Record<string, unknown>) : null,
   };
 }

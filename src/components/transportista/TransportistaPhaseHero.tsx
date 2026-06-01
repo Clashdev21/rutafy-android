@@ -10,6 +10,7 @@ import type { Service } from '@/types/service';
 import { shouldShowTransportistaCancelButton } from '@/utils/transportistaCancelAction';
 import { shouldShowTransportistaClosePin } from '@/utils/transportistaClosePin';
 import { resolveTransportistaClosePin } from '@/utils/transportistaClosePinStorage';
+import { isStale, minutesAgo } from '@/utils/gpsFreshness';
 
 export type TransportistaPhase =
   | 'IDLE'
@@ -131,6 +132,42 @@ function RoutePanel({ service }: { service: Service }) {
   );
 }
 
+function formatDistanceKm(value?: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const km = Number(value);
+  return km < 1 ? `${Math.max(0.1, km).toFixed(1)} km` : `${km.toFixed(1)} km`;
+}
+
+function formatEtaMinutes(value?: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const minutes = Math.max(1, Math.ceil(value));
+  return `${minutes} min`;
+}
+
+function TrackingPanel({ service }: { service: Service }) {
+  const stale = isStale(service.messenger_location_updated_at);
+  const distanceLabel = formatDistanceKm(service.estimated_route_distance_km);
+  const etaLabel = formatEtaMinutes(service.estimated_route_duration_minutes);
+  const updatedLabel = minutesAgo(service.messenger_location_updated_at);
+
+  if (!distanceLabel && !etaLabel && !updatedLabel && !stale) return null;
+
+  return (
+    <View style={styles.trackingPanel}>
+      {distanceLabel ? (
+        <Text style={styles.trackingLine}>Mensajero a {distanceLabel}</Text>
+      ) : null}
+      {etaLabel ? <Text style={styles.trackingLine}>ETA aprox: {etaLabel}</Text> : null}
+      {updatedLabel ? (
+        <Text style={styles.trackingHint}>Ubicación actualizada {updatedLabel}</Text>
+      ) : null}
+      {stale ? (
+        <Text style={styles.trackingWarning}>⚠ Ubicación del mensajero desactualizada</Text>
+      ) : null}
+    </View>
+  );
+}
+
 type Props = {
   activeService: Service | null;
 };
@@ -184,6 +221,7 @@ export function TransportistaPhaseHero({ activeService }: Props) {
       <Text style={styles.title}>{content.title}</Text>
       <Text style={styles.body}>{content.body}</Text>
       {showRoutes ? <RoutePanel service={activeService} /> : null}
+      {activeService ? <TrackingPanel service={activeService} /> : null}
       {showClosePin ? <ClosePinPanel pin={closePin} /> : null}
       {showCancel && activeService ? (
         <View style={styles.cancelSection}>
@@ -283,6 +321,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: 'rgba(255,255,255,0.85)',
+  },
+  trackingPanel: {
+    marginTop: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: RutafyColors.heroGlassBorder,
+    backgroundColor: RutafyColors.heroGlass,
+    padding: Spacing.three,
+    gap: Spacing.one,
+  },
+  trackingLine: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: RutafyColors.white,
+  },
+  trackingHint: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  trackingWarning: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FECACA',
   },
   cancelSection: {
     marginTop: Spacing.two,

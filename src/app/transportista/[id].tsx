@@ -11,6 +11,7 @@ import { RutafyColors } from '@/constants/rutafyTheme';
 import { useTransportistaServiceCancel } from '@/hooks/useTransportistaServiceCancel';
 import { useTransportistaServicesContext } from '@/contexts/TransportistaServicesContext';
 import { shouldShowTransportistaCancelButton } from '@/utils/transportistaCancelAction';
+import { isStale, minutesAgo } from '@/utils/gpsFreshness';
 import { getStatusLabel } from '@/utils/serviceStatus';
 
 export default function TransportistaDetalleScreen() {
@@ -34,6 +35,10 @@ export default function TransportistaDetalleScreen() {
   }
 
   const cancelling = isCancelling(service.service_id);
+  const staleGps = isStale(service.messenger_location_updated_at);
+  const distanceLabel = formatDistanceKm(service.estimated_route_distance_km);
+  const etaLabel = formatEtaMinutes(service.estimated_route_duration_minutes);
+  const gpsUpdated = minutesAgo(service.messenger_location_updated_at);
 
   return (
     <ThemedView style={styles.container}>
@@ -51,6 +56,14 @@ export default function TransportistaDetalleScreen() {
         <DetailRow label="Modo" value={service.request_mode} />
         <DetailRow label="Origen" value={service.origin} />
         <DetailRow label="Destino" value={service.destination} />
+        {distanceLabel ? <DetailRow label="Tracking" value={`Mensajero a ${distanceLabel}`} /> : null}
+        {etaLabel ? <DetailRow label="ETA" value={`ETA aprox: ${etaLabel}`} /> : null}
+        {gpsUpdated ? (
+          <DetailRow label="GPS" value={`Ubicación actualizada ${gpsUpdated}`} />
+        ) : null}
+        {staleGps ? (
+          <Text style={styles.gpsWarning}>⚠ Ubicación del mensajero desactualizada</Text>
+        ) : null}
         {service.created_at ? <DetailRow label="Creado" value={service.created_at} /> : null}
         {service.scheduled_for ? (
           <DetailRow label="Programado" value={service.scheduled_for} />
@@ -75,6 +88,18 @@ export default function TransportistaDetalleScreen() {
   );
 }
 
+function formatDistanceKm(value?: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const km = Number(value);
+  return km < 1 ? `${Math.max(0.1, km).toFixed(1)} km` : `${km.toFixed(1)} km`;
+}
+
+function formatEtaMinutes(value?: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const minutes = Math.max(1, Math.ceil(value));
+  return `${minutes} min`;
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
@@ -93,6 +118,11 @@ const styles = StyleSheet.create({
   cancelError: {
     textAlign: 'center',
     fontSize: 13,
+    color: RutafyColors.danger,
+  },
+  gpsWarning: {
+    fontSize: 13,
+    fontWeight: '600',
     color: RutafyColors.danger,
   },
   header: {
