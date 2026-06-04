@@ -3,8 +3,13 @@ import * as TaskManager from 'expo-task-manager';
 
 import { tokenStorage } from '@/auth/tokenStorage';
 import { API_BASE_URL } from '@/config/env';
+import { buildTraceId } from '@/utils/traceId';
 
+/** Única fuente de verdad del nombre de task (defineTask + start/stop). */
 export const BACKGROUND_LOCATION_TASK_NAME = 'rutafy-background-location';
+export const TASK_NAME = BACKGROUND_LOCATION_TASK_NAME;
+
+console.log('[bg-task-module-loaded]', TASK_NAME);
 
 let lastSentAt = 0;
 let isSending = false;
@@ -47,6 +52,9 @@ async function sendBackgroundHeartbeat(lat: number, lng: number): Promise<void> 
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'x-trace-id': buildTraceId('bg-heartbeat'),
       },
       body: JSON.stringify(payload),
     });
@@ -75,8 +83,8 @@ async function sendBackgroundHeartbeat(lat: number, lng: number): Promise<void> 
   }
 }
 
-if (!TaskManager.isTaskDefined(BACKGROUND_LOCATION_TASK_NAME)) {
-  TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) => {
+if (!TaskManager.isTaskDefined(TASK_NAME)) {
+  TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
     if (error) {
       console.warn('[bg-heartbeat-error]', error);
       return;
@@ -98,4 +106,7 @@ if (!TaskManager.isTaskDefined(BACKGROUND_LOCATION_TASK_NAME)) {
 
     await sendBackgroundHeartbeat(lat as number, lng as number);
   });
+  console.log('[bg-task-defined]', TASK_NAME);
+} else {
+  console.log('[bg-task-already-defined]', TASK_NAME);
 }

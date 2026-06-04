@@ -173,6 +173,13 @@ export function useMensajeroOperations(
     (uiState === 'ASSIGNED' || uiState === 'IN_SERVICE');
 
   useEffect(() => {
+    console.log('[bg-tracking-effect]', {
+      shouldEnableBackgroundTracking,
+      uiState,
+      appRole,
+      canOperate,
+      activeServiceStatus: activeService?.status ?? null,
+    });
     void syncBackgroundTracking(shouldEnableBackgroundTracking);
   }, [shouldEnableBackgroundTracking]);
 
