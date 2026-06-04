@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { getMensajeroPollConfig } from '@/constants/mensajeroPollIntervals';
 import { syncBackgroundTracking } from '@/services/backgroundLocationService';
 import { useMessengerLocationHeartbeat } from '@/hooks/useMessengerLocationHeartbeat';
 import { usePolling } from '@/hooks/usePolling';
@@ -12,7 +13,27 @@ import {
   pickMensajeroActiveService,
 } from '@/utils/serviceStatus';
 
-const POLL_MS = 15000;
+export type OffersRefreshSource =
+  | 'poller'
+  | 'toggle'
+  | 'refreshAll'
+  | 'acceptOffer'
+  | 'pullToRefresh'
+  | 'startService'
+  | 'closeSuccess'
+  | 'manual';
+
+export type RefreshOffersOptions = {
+  silent?: boolean;
+  forceOnline?: boolean;
+  source: OffersRefreshSource;
+};
+
+export type RefreshAllOptions = {
+  silent?: boolean;
+  forceOnline?: boolean;
+  source: OffersRefreshSource;
+};
 
 export function useMensajeroOperations(
   actorId: string | null,
@@ -31,6 +52,9 @@ export function useMensajeroOperations(
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [claimingServiceId, setClaimingServiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshMyInFlightRef = useRef(false);
+  const refreshOffersInFlightRef = useRef(false);
 
   useEffect(() => {
     if (actorId && isValidUuid(actorId)) {
@@ -76,37 +100,121 @@ export function useMensajeroOperations(
     }
   }, [effectiveActorId, canOperate]);
 
-  const refreshOffers = useCallback(async (silent = false, forceOnline = false) => {
-    if (!canOperate || !effectiveActorId || (!isOnline && !forceOnline)) {
-      setAvailableServices([]);
-      setOfferIdByServiceId({});
-      return;
-    }
-    if (!silent) setLoadingOffers(true);
-    try {
-      const { services, offerIdByServiceId: map } =
-        await mensajeroService.fetchActiveOffers(effectiveActorId);
-      setAvailableServices(services);
-      setOfferIdByServiceId(map);
-    } catch (e) {
-      setError(getApiErrorMessage(e, 'No se pudieron cargar las ofertas'));
-    } finally {
-      if (!silent) setLoadingOffers(false);
-    }
-  }, [effectiveActorId, canOperate, isOnline]);
+  const effectiveIsOnline = isOnline || hasActiveOperational;
+  const firstOffer = availableServices[0] ?? null;
+
+  const uiState = useMemo(() => {
+    if (!effectiveIsOnline) return 'OFFLINE' as const;
+    if (activeService?.status === 'STARTED') return 'IN_SERVICE' as const;
+    if (activeService?.status === 'CLAIMED') return 'ASSIGNED' as const;
+    if (firstOffer) return 'OFFER' as const;
+    return 'AVAILABLE' as const;
+  }, [effectiveIsOnline, activeService, firstOffer]);
+
+  const pollConfig = useMemo(() => getMensajeroPollConfig(uiState), [uiState]);
+
+  const refreshOffers = useCallback(
+    async (options: RefreshOffersOptions) => {
+      const { silent = false, forceOnline = false, source } = options;
+      const logContext = {
+        source,
+        uiState,
+        isOnline,
+        offersMs: pollConfig.offersMs,
+        timestamp: Date.now(),
+      };
+
+      if (!canOperate || !effectiveActorId || (!isOnline && !forceOnline)) {
+        if (__DEV__) {
+          console.log('[offers-refresh-skip-offline]', logContext);
+        }
+        setAvailableServices([]);
+        setOfferIdByServiceId({});
+        return;
+      }
+
+      if (refreshOffersInFlightRef.current) {
+        if (__DEV__) {
+          console.log('[offers-refresh-skip-in-flight]', {
+            source,
+            uiState,
+            timestamp: Date.now(),
+          });
+        }
+        return;
+      }
+
+      refreshOffersInFlightRef.current = true;
+      const startedAt = Date.now();
+      if (__DEV__) {
+        console.log('[offers-refresh-start]', {
+          ...logContext,
+          inFlight: true,
+        });
+      }
+      if (!silent) setLoadingOffers(true);
+      try {
+        const { services, offerIdByServiceId: map } =
+          await mensajeroService.fetchActiveOffers(effectiveActorId);
+        setAvailableServices(services);
+        setOfferIdByServiceId(map);
+      } catch (e) {
+        setError(getApiErrorMessage(e, 'No se pudieron cargar las ofertas'));
+      } finally {
+        refreshOffersInFlightRef.current = false;
+        if (!silent) setLoadingOffers(false);
+        if (__DEV__) {
+          console.log('[offers-refresh-end]', {
+            source,
+            durationMs: Date.now() - startedAt,
+          });
+        }
+      }
+    },
+    [effectiveActorId, canOperate, isOnline, uiState, pollConfig.offersMs],
+  );
 
   const refreshAll = useCallback(
-    async (silent = false, forceOnline = false) => {
-      await Promise.all([refreshMyServices(silent), refreshOffers(silent, forceOnline)]);
+    async (options: RefreshAllOptions) => {
+      const { silent = false, forceOnline = false, source } = options;
+      await Promise.all([
+        refreshMyServices(silent),
+        refreshOffers({ silent, forceOnline, source }),
+      ]);
     },
     [refreshMyServices, refreshOffers],
   );
 
-  const effectiveIsOnline = isOnline || hasActiveOperational;
-  const firstOffer = availableServices[0] ?? null;
+  const pollRefreshMyServices = useCallback(async () => {
+    if (refreshMyInFlightRef.current) return;
+    refreshMyInFlightRef.current = true;
+    try {
+      await refreshMyServices(true);
+    } finally {
+      refreshMyInFlightRef.current = false;
+    }
+  }, [refreshMyServices]);
 
-  const pollEnabled = canOperate;
-  usePolling(() => refreshAll(true), POLL_MS, pollEnabled);
+  const pollRefreshOffers = useCallback(() => {
+    void refreshOffers({ silent: true, source: 'poller' });
+  }, [refreshOffers]);
+  const offersPollEnabled = canOperate && pollConfig.offersEnabled;
+  const servicesPollEnabled = canOperate && pollConfig.servicesEnabled;
+
+  usePolling(pollRefreshOffers, pollConfig.offersMs, offersPollEnabled);
+  usePolling(pollRefreshMyServices, pollConfig.servicesMs, servicesPollEnabled);
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log('[mensajero-poll]', {
+        uiState,
+        offersMs: pollConfig.offersMs,
+        servicesMs: pollConfig.servicesMs,
+        offersPollEnabled,
+        servicesPollEnabled,
+      });
+    }
+  }, [uiState, pollConfig, offersPollEnabled, servicesPollEnabled]);
 
   const toggleAvailability = useCallback(async () => {
     if (!effectiveActorId || !canOperate) {
@@ -126,7 +234,7 @@ export function useMensajeroOperations(
         setAvailableServices([]);
         setOfferIdByServiceId({});
       } else {
-        await refreshOffers();
+        await refreshOffers({ source: 'toggle' });
       }
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo actualizar la disponibilidad'));
@@ -154,7 +262,7 @@ export function useMensajeroOperations(
           return next;
         });
         await refreshMyServices();
-        await refreshOffers();
+        await refreshOffers({ source: 'acceptOffer' });
         setError(null);
       } catch (e) {
         const msg = getApiErrorMessage(e, 'No se pudo aceptar la oferta');
@@ -182,14 +290,6 @@ export function useMensajeroOperations(
       return prev.filter((s) => s.service_id !== omittedId);
     });
   }, []);
-
-  const uiState = useMemo(() => {
-    if (!effectiveIsOnline) return 'OFFLINE' as const;
-    if (activeService?.status === 'STARTED') return 'IN_SERVICE' as const;
-    if (activeService?.status === 'CLAIMED') return 'ASSIGNED' as const;
-    if (firstOffer) return 'OFFER' as const;
-    return 'AVAILABLE' as const;
-  }, [effectiveIsOnline, activeService, firstOffer]);
 
   const locationHeartbeat = useMessengerLocationHeartbeat({
     enabled: canOperate && effectiveAppRole === 'MENSAJERO',
@@ -240,7 +340,7 @@ export function useMensajeroOperations(
       await mensajeroService.patchAvailability(effectiveActorId, 'AVAILABLE');
       setIsOnline(true);
       setError(null);
-      await refreshAll(false, true);
+      await refreshAll({ silent: false, forceOnline: true, source: 'closeSuccess' });
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo restaurar la disponibilidad'));
     } finally {

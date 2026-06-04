@@ -11,7 +11,14 @@ export function usePolling(
   useEffect(() => {
     if (!enabled || intervalMs <= 0) return;
 
+    if (__DEV__) {
+      console.log('[polling-effect]', { intervalMs, enabled });
+    }
+
     const tick = () => {
+      if (__DEV__) {
+        console.log('[polling-tick]', { intervalMs, enabled, at: Date.now() });
+      }
       void callbackRef.current();
     };
 

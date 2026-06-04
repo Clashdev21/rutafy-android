@@ -33,7 +33,10 @@ export default function MensajeroActividadScreen() {
           data={myServices}
           keyExtractor={(item) => item.service_id}
           refreshControl={
-            <RefreshControl refreshing={busy} onRefresh={() => void refreshAll(false)} />
+            <RefreshControl
+              refreshing={busy}
+              onRefresh={() => void refreshAll({ silent: false, source: 'pullToRefresh' })}
+            />
           }
           contentContainerStyle={[styles.list, { paddingBottom: listBottom }]}
           ListEmptyComponent={
@@ -44,7 +47,7 @@ export default function MensajeroActividadScreen() {
             )
           }
           ListFooterComponent={
-            <Text style={styles.pollHint}>Actualización automática cada 15 s</Text>
+            <Text style={styles.pollHint}>Actualización automática según estado operacional</Text>
           }
           renderItem={({ item }) => <ServiceListItem service={item} />}
         />

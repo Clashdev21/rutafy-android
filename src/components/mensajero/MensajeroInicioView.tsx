@@ -80,7 +80,7 @@ export function MensajeroInicioView() {
           disabled={!canOperate}
           locationLabel={locationLabel}
           locationActive={locationActive}
-          onStartSuccess={() => refreshAll(false)}
+          onStartSuccess={() => void refreshAll({ silent: false, source: 'startService' })}
         />
       ) : null}
 
