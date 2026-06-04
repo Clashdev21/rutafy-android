@@ -1,3 +1,5 @@
+import { type Href, router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -15,12 +17,29 @@ import { useMensajeroOperationsContext } from '@/contexts/MensajeroOperationsCon
 import { Spacing } from '@/constants/theme';
 
 export default function MensajeroActividadScreen() {
-  const { myServices, loadingMy, loadingOffers, availabilitySyncing, refreshAll } =
-    useMensajeroOperationsContext();
+  const {
+    myServices,
+    uiState,
+    loadingMy,
+    availabilitySyncing,
+    refreshMyServices,
+  } = useMensajeroOperationsContext();
 
-  const busy = loadingMy || loadingOffers || availabilitySyncing;
+  const busy = loadingMy || availabilitySyncing;
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshMyServices(true);
+    }, [refreshMyServices]),
+  );
+
   const insets = useSafeAreaInsets();
   const listBottom = getTabBarScrollPadding(insets.bottom);
+
+  const emptyMessage =
+    uiState === 'OFFLINE'
+      ? 'Estás offline. Desliza hacia abajo para actualizar tu historial.'
+      : 'No hay servicios cargados. Desliza para actualizar tu historial.';
 
   return (
     <View style={styles.container}>
@@ -35,7 +54,7 @@ export default function MensajeroActividadScreen() {
           refreshControl={
             <RefreshControl
               refreshing={busy}
-              onRefresh={() => void refreshAll({ silent: false, source: 'pullToRefresh' })}
+              onRefresh={() => void refreshMyServices(false)}
             />
           }
           contentContainerStyle={[styles.list, { paddingBottom: listBottom }]}
@@ -43,13 +62,18 @@ export default function MensajeroActividadScreen() {
             loadingMy ? (
               <ActivityIndicator color={RutafyColors.brand} style={styles.loader} />
             ) : (
-              <Text style={styles.empty}>No tienes servicios asignados.</Text>
+              <Text style={styles.empty}>{emptyMessage}</Text>
             )
           }
           ListFooterComponent={
             <Text style={styles.pollHint}>Actualización automática según estado operacional</Text>
           }
-          renderItem={({ item }) => <ServiceListItem service={item} />}
+          renderItem={({ item }) => (
+            <ServiceListItem
+              service={item}
+              onPress={() => router.push(`/mensajero/${item.service_id}` as Href)}
+            />
+          )}
         />
       </SafeAreaView>
     </View>

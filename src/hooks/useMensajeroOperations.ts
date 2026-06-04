@@ -88,7 +88,11 @@ export function useMensajeroOperations(
 
   const refreshMyServices = useCallback(async (silent = false) => {
     if (!canOperate || !effectiveActorId) return;
+    if (__DEV__) {
+      console.log('[my-services-refresh-start]', { silent, isOnline });
+    }
     if (!silent) setLoadingMy(true);
+    const startedAt = Date.now();
     try {
       const list = await mensajeroService.fetchMyServices(effectiveActorId);
       setMyServices(list);
@@ -97,8 +101,11 @@ export function useMensajeroOperations(
       setError(getApiErrorMessage(e, 'No se pudieron cargar mis servicios'));
     } finally {
       if (!silent) setLoadingMy(false);
+      if (__DEV__) {
+        console.log('[my-services-refresh-end]', { silent, durationMs: Date.now() - startedAt });
+      }
     }
-  }, [effectiveActorId, canOperate]);
+  }, [effectiveActorId, canOperate, isOnline]);
 
   const effectiveIsOnline = isOnline || hasActiveOperational;
   const firstOffer = availableServices[0] ?? null;
@@ -348,6 +355,11 @@ export function useMensajeroOperations(
     }
   }, [effectiveActorId, canOperate, refreshAll]);
 
+  const getServiceById = useCallback(
+    (id: string) => myServices.find((s) => s.service_id === id) ?? null,
+    [myServices],
+  );
+
   return {
     isOnline,
     availabilitySyncing,
@@ -370,5 +382,6 @@ export function useMensajeroOperations(
     refreshAll,
     refreshMyServices,
     refreshOffers,
+    getServiceById,
   };
 }
