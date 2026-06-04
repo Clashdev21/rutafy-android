@@ -47,7 +47,9 @@ async function sendBackgroundHeartbeat(lat: number, lng: number): Promise<void> 
   isSending = true;
   try {
     const payload = { lat, lng };
-    console.log('[bg-heartbeat-payload]', payload);
+    if (__DEV__) {
+      console.log('[bg-heartbeat-payload]', payload);
+    }
     const response = await expoFetch(`${API_BASE_URL}/v1/mensajero/heartbeat`, {
       method: 'POST',
       headers: {
@@ -92,11 +94,13 @@ if (!TaskManager.isTaskDefined(TASK_NAME)) {
 
     const payload = data as { locations?: unknown } | undefined;
     const lastLocation = extractLastValidLocation(payload?.locations);
-    console.log('[bg-location-event]', {
-      hasLocations: Array.isArray(payload?.locations),
-      count: Array.isArray(payload?.locations) ? payload.locations.length : 0,
-      timestamp: lastLocation?.timestamp ?? null,
-    });
+    if (__DEV__) {
+      console.log('[bg-location-event]', {
+        hasLocations: Array.isArray(payload?.locations),
+        count: Array.isArray(payload?.locations) ? payload.locations.length : 0,
+        timestamp: lastLocation?.timestamp ?? null,
+      });
+    }
 
     if (!lastLocation) return;
 

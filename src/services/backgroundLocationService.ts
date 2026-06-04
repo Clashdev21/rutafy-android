@@ -35,7 +35,9 @@ export async function requestBackgroundLocationPermissionWithRationale(): Promis
     const fg = await Location.getForegroundPermissionsAsync();
     if (fg.status !== 'granted') {
       const fgReq = await Location.requestForegroundPermissionsAsync();
-      console.log('[bg-location-permission]', { stage: 'foreground', status: fgReq.status });
+      if (__DEV__) {
+        console.log('[bg-location-permission]', { stage: 'foreground', status: fgReq.status });
+      }
       if (fgReq.status !== 'granted') return false;
     }
 
@@ -43,18 +45,24 @@ export async function requestBackgroundLocationPermissionWithRationale(): Promis
 
     const accepted = await showBackgroundRationaleAlert();
     if (!accepted) {
-      console.log('[bg-location-permission]', { stage: 'rationale', accepted: false });
+      if (__DEV__) {
+        console.log('[bg-location-permission]', { stage: 'rationale', accepted: false });
+      }
       return false;
     }
 
     const bg = await Location.getBackgroundPermissionsAsync();
     if (bg.status === 'granted') {
-      console.log('[bg-location-permission]', { stage: 'background', status: bg.status });
+      if (__DEV__) {
+        console.log('[bg-location-permission]', { stage: 'background', status: bg.status });
+      }
       return true;
     }
 
     const bgReq = await Location.requestBackgroundPermissionsAsync();
-    console.log('[bg-location-permission]', { stage: 'background', status: bgReq.status });
+    if (__DEV__) {
+      console.log('[bg-location-permission]', { stage: 'background', status: bgReq.status });
+    }
     return bgReq.status === 'granted';
   } catch (error) {
     console.warn('[bg-location-permission]', { error });
@@ -63,9 +71,11 @@ export async function requestBackgroundLocationPermissionWithRationale(): Promis
 }
 
 export async function startBackgroundLocationForActiveService(): Promise<boolean> {
-  console.log('[bg-start-call]', {
-    task: TASK_NAME,
-  });
+  if (__DEV__) {
+    console.log('[bg-start-call]', {
+      task: TASK_NAME,
+    });
+  }
   const isDefined = TaskManager.isTaskDefined(TASK_NAME);
   if (!isDefined) {
     console.warn('[bg-location-start-error]', { reason: 'task_not_defined', task: TASK_NAME });
@@ -111,11 +121,15 @@ export async function stopBackgroundLocation(): Promise<void> {
   try {
     started = await Location.hasStartedLocationUpdatesAsync(TASK_NAME);
   } catch (error) {
-    console.warn('[bg-location-stop-check]', { isDefined, started: false, checkError: error });
+    if (__DEV__) {
+      console.warn('[bg-location-stop-check]', { isDefined, started: false, checkError: error });
+    }
     return;
   }
 
-  console.log('[bg-location-stop-check]', { isDefined, started });
+  if (__DEV__) {
+    console.log('[bg-location-stop-check]', { isDefined, started });
+  }
 
   if (!isDefined) {
     console.warn('[bg-location-stop]', { skipped: true, reason: 'task_not_defined' });

@@ -79,10 +79,12 @@ export function useMessengerLocationHeartbeat(params: {
 
       if (isInitial && hasSentInitialRef.current) return;
       if (!isInitial && now - lastSentAtRef.current < HEARTBEAT_THROTTLE_MS) {
-        console.log('[heartbeat-skip-throttle]', {
-          reason,
-          msSinceLast: now - lastSentAtRef.current,
-        });
+        if (__DEV__) {
+          console.log('[heartbeat-skip-throttle]', {
+            reason,
+            msSinceLast: now - lastSentAtRef.current,
+          });
+        }
         return;
       }
 
@@ -103,10 +105,25 @@ export function useMessengerLocationHeartbeat(params: {
           payload.lng = lastFixRef.current.lng;
         }
 
-        console.log('[heartbeat-payload]', { reason, payload });
+        const isPayloadEmpty =
+          payload.lat == null &&
+          payload.lng == null &&
+          payload.availability_status == null &&
+          payload.battery_level == null;
+
+        if (isPayloadEmpty) {
+          console.log('[heartbeat-skip-empty]', { reason });
+          return;
+        }
+
+        if (__DEV__) {
+          console.log('[heartbeat-payload]', { reason, payload });
+        }
         const response = await postHeartbeat(payload);
         lastSentAtRef.current = Date.now();
-        console.log('[heartbeat-response]', response);
+        if (__DEV__) {
+          console.log('[heartbeat-response]', response);
+        }
       } catch (error) {
         const status = (error as { response?: { status?: number } })?.response?.status;
         if (status === 429) {
@@ -125,13 +142,17 @@ export function useMessengerLocationHeartbeat(params: {
     if (intervalRef.current != null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
-      console.log('[heartbeat-stop]');
+      if (__DEV__) {
+        console.log('[heartbeat-stop]');
+      }
     }
   }, []);
 
   const startHeartbeatLoop = useCallback(() => {
     if (intervalRef.current != null) return;
-    console.log('[heartbeat-start]');
+    if (__DEV__) {
+      console.log('[heartbeat-start]');
+    }
     if (!hasSentInitialRef.current) {
       void sendHeartbeat('initial');
     }
@@ -172,7 +193,9 @@ export function useMessengerLocationHeartbeat(params: {
     const startLocation = async () => {
       try {
         const permission = await requestForegroundGpsPermission();
-        console.log('[gps-permission]', permission);
+        if (__DEV__) {
+          console.log('[gps-permission]', permission);
+        }
         if (cancelled) return;
 
         if (permission !== 'granted') {
@@ -190,10 +213,14 @@ export function useMessengerLocationHeartbeat(params: {
           setHasLocationFix(true);
         }
         setStatus('active');
-        console.log('[gps-position]', current);
+        if (__DEV__) {
+          console.log('[gps-position]', current);
+        }
 
         watchSubscriptionRef.current?.remove();
-        console.log('[gps-watch-start]');
+        if (__DEV__) {
+          console.log('[gps-watch-start]');
+        }
         watchSubscriptionRef.current = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.Balanced,
@@ -220,7 +247,9 @@ export function useMessengerLocationHeartbeat(params: {
             if (!hasLocationFixRef.current) {
               setHasLocationFix(true);
             }
-            console.log('[gps-position]', next);
+            if (__DEV__) {
+              console.log('[gps-position]', next);
+            }
           },
         );
       } catch (error) {
@@ -239,7 +268,9 @@ export function useMessengerLocationHeartbeat(params: {
       cancelled = true;
       watchSubscriptionRef.current?.remove();
       watchSubscriptionRef.current = null;
-      console.log('[gps-watch-stop]');
+      if (__DEV__) {
+        console.log('[gps-watch-stop]');
+      }
       stopHeartbeatLoop();
     };
   }, [canRun, sendHeartbeat, startHeartbeatLoop, stopHeartbeatLoop]);
@@ -249,7 +280,9 @@ export function useMessengerLocationHeartbeat(params: {
       stopHeartbeatLoop();
       watchSubscriptionRef.current?.remove();
       watchSubscriptionRef.current = null;
-      console.log('[gps-watch-stop]');
+      if (__DEV__) {
+        console.log('[gps-watch-stop]');
+      }
     };
   }, [stopHeartbeatLoop]);
 

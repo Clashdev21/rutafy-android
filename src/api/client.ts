@@ -87,11 +87,13 @@ function clearAuthAndNotify(): void {
 }
 
 apiClient.interceptors.request.use(async (config) => {
-  console.log('[api-request]', {
-    method: config.method,
-    baseURL: config.baseURL,
-    url: config.url,
-  });
+  if (__DEV__) {
+    console.log('[api-request]', {
+      method: config.method,
+      baseURL: config.baseURL,
+      url: config.url,
+    });
+  }
 
   if (!isPublicAuthRoute(config)) {
     const token = await tokenStorage.getAccessToken();
