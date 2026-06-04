@@ -1,3 +1,4 @@
+import { type Href, router } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
@@ -41,6 +42,18 @@ export default function MensajeroCuentaScreen() {
           )}
         </Pressable>
       </RutafyCard>
+
+      <RutafyCard style={styles.linkCard}>
+        <Text style={styles.cardTitle}>Piloto logístico</Text>
+        <Text style={styles.cardBody}>
+          Modo operador para captura de ruta GPS (terminal / tractor).
+        </Text>
+        <Pressable
+          style={styles.linkBtn}
+          onPress={() => router.push('/captura-logistica' as Href)}>
+          <Text style={styles.linkBtnText}>Captura logística</Text>
+        </Pressable>
+      </RutafyCard>
     </RutafyCuentaScreen>
   );
 }
@@ -72,4 +85,16 @@ const styles = StyleSheet.create({
   toggleLabel: { fontWeight: '600', color: RutafyColors.textPrimary },
   toggleLabelOn: { color: RutafyColors.white },
   disabled: { opacity: 0.6 },
+  linkCard: { gap: Spacing.two, marginTop: Spacing.two },
+  linkBtn: {
+    borderWidth: 1,
+    borderColor: RutafyColors.brand,
+    borderRadius: RutafyRadius.button,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+  },
+  linkBtnText: {
+    fontWeight: '600',
+    color: RutafyColors.brand,
+  },
 });

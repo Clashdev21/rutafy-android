@@ -32,3 +32,14 @@ export const OFFER_ENDPOINTS = {
   accept: (offerId: string) =>
     `/v1/service-offers/${encodeURIComponent(offerId)}/accept`,
 } as const;
+
+export const TRACKING_SESSION_ENDPOINTS = {
+  start: '/v1/tracking-sessions/start',
+  my: '/v1/tracking-sessions/my',
+  byId: (sessionId: string) =>
+    `/v1/tracking-sessions/${encodeURIComponent(sessionId)}`,
+  pointsBatch: (sessionId: string) =>
+    `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/points/batch`,
+  end: (sessionId: string) =>
+    `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/end`,
+} as const;

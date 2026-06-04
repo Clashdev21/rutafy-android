@@ -18,9 +18,10 @@ export function AuthNavigationGuard() {
     const isIndex = pathname === '/' || pathname === '';
     const onTransportista = pathname.startsWith('/transportista');
     const onMensajero = pathname.startsWith('/mensajero');
+    const onCapturaLogistica = pathname.startsWith('/captura-logistica');
 
     if (!isAuthenticated) {
-      if (onTransportista || onMensajero) {
+      if (onTransportista || onMensajero || onCapturaLogistica) {
         router.replace('/login');
       }
       return;
