@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 import { AuthProvider } from '@/auth/AuthProvider';
 import { AuthNavigationGuard } from '@/components/auth/AuthNavigationGuard';
 import '@/services/backgroundLocationTask';
+import '@/services/operatorTrackingTask';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

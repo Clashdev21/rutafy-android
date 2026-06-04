@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useAuth } from '@/auth/useAuth';
 import {
   endTrackingSession,
   fetchTrackingSession,
@@ -8,6 +9,12 @@ import {
   startTrackingSession,
 } from '@/services/trackingSessionService';
 import { requestForegroundGpsPermission } from '@/services/locationService';
+import {
+  ensureOperatorBackgroundTracking,
+  isOperatorTrackingStartedAsync,
+  startOperatorTrackingAsync,
+  stopOperatorTrackingAsync,
+} from '@/services/operatorTrackingService';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type {
   StoredTrackingSession,
@@ -15,37 +22,24 @@ import type {
   TrackingSessionPurpose,
 } from '@/types/tracking';
 import { getApiErrorMessage } from '@/utils/errors';
+import { assertCanStartOperatorCapture } from '@/utils/operatorTrackingGuards';
+import { toTrackingPoint } from '@/utils/trackingPointMapper';
 
 const BATCH_FLUSH_MS = 12000;
 const WATCH_TIME_INTERVAL_MS = 20000;
 const WATCH_DISTANCE_INTERVAL_M = 10;
+const FG_POINT_METADATA = { source: 'android_mvp' as const };
 
 function shortSessionId(id: string): string {
   const compact = id.replace(/-/g, '');
   return compact.length > 8 ? compact.slice(0, 8) : compact;
 }
 
-function locationToPoint(update: Location.LocationObject): TrackingPointInput {
-  const { coords, timestamp } = update;
-  return {
-    lat: coords.latitude,
-    lng: coords.longitude,
-    captured_at: new Date(timestamp).toISOString(),
-    accuracy_m: Number.isFinite(coords.accuracy) ? coords.accuracy : null,
-    speed_mps:
-      coords.speed != null && Number.isFinite(coords.speed) && coords.speed >= 0
-        ? coords.speed
-        : null,
-    heading:
-      coords.heading != null && Number.isFinite(coords.heading) && coords.heading >= 0
-        ? coords.heading
-        : null,
-    battery_level: null,
-    app_state: 'foreground',
-  };
-}
-
 export function useOperatorTrackingSession() {
+  const { user } = useAuth();
+  const actorId = user?.actor_id?.trim() ?? null;
+  const appRole = user?.appRole ?? null;
+
   const [storedSession, setStoredSession] = useState<StoredTrackingSession | null>(null);
   const [remoteStatus, setRemoteStatus] = useState<string | null>(null);
   const [purpose, setPurpose] = useState<TrackingSessionPurpose>('operacion_interna');
@@ -58,6 +52,7 @@ export function useOperatorTrackingSession() {
   const [pointsSent, setPointsSent] = useState(0);
   const [lastPointAt, setLastPointAt] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [operatorBgActive, setOperatorBgActive] = useState(false);
 
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const bufferRef = useRef<TrackingPointInput[]>([]);
@@ -65,6 +60,7 @@ export function useOperatorTrackingSession() {
   const lastFlushAtRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const storedSessionRef = useRef<StoredTrackingSession | null>(null);
+  const operatorBgActiveRef = useRef(false);
 
   const isActive = Boolean(storedSession?.sessionId);
 
@@ -73,6 +69,17 @@ export function useOperatorTrackingSession() {
     sessionIdRef.current = storedSession?.sessionId ?? null;
   }, [storedSession]);
 
+  useEffect(() => {
+    operatorBgActiveRef.current = operatorBgActive;
+  }, [operatorBgActive]);
+
+  const syncOperatorBgState = useCallback(async () => {
+    const started = await isOperatorTrackingStartedAsync();
+    operatorBgActiveRef.current = started;
+    setOperatorBgActive(started);
+    return started;
+  }, []);
+
   const stopWatch = useCallback(() => {
     watchRef.current?.remove();
     watchRef.current = null;
@@ -80,6 +87,11 @@ export function useOperatorTrackingSession() {
   }, []);
 
   const flushBuffer = useCallback(async (sessionId: string) => {
+    if (operatorBgActiveRef.current) {
+      bufferRef.current = [];
+      return;
+    }
+
     if (flushInFlightRef.current) return;
     const batch = bufferRef.current.splice(0, bufferRef.current.length);
     if (batch.length === 0) return;
@@ -133,7 +145,16 @@ export function useOperatorTrackingSession() {
           const sid = sessionIdRef.current;
           if (!sid) return;
 
-          bufferRef.current.push(locationToPoint(update));
+          const point = toTrackingPoint(update, 'foreground', FG_POINT_METADATA);
+          if (!point) return;
+
+          setLastPointAt(point.captured_at);
+
+          if (operatorBgActiveRef.current) {
+            return;
+          }
+
+          bufferRef.current.push(point);
           const now = Date.now();
           if (
             now - lastFlushAtRef.current >= BATCH_FLUSH_MS ||
@@ -147,6 +168,19 @@ export function useOperatorTrackingSession() {
     [flushBuffer, stopWatch],
   );
 
+  const startOperatorBackground = useCallback(async (): Promise<boolean> => {
+    const started = await startOperatorTrackingAsync();
+    operatorBgActiveRef.current = started;
+    setOperatorBgActive(started);
+    return started;
+  }, []);
+
+  const stopOperatorBackground = useCallback(async () => {
+    await stopOperatorTrackingAsync();
+    operatorBgActiveRef.current = false;
+    setOperatorBgActive(false);
+  }, []);
+
   const hydrateFromStorage = useCallback(async () => {
     setLoading(true);
     try {
@@ -154,6 +188,8 @@ export function useOperatorTrackingSession() {
       if (!local) {
         setStoredSession(null);
         setRemoteStatus(null);
+        setOperatorBgActive(false);
+        operatorBgActiveRef.current = false;
         return;
       }
 
@@ -167,7 +203,10 @@ export function useOperatorTrackingSession() {
           setRemoteStatus(remote.status);
           if (remote.status !== 'active') {
             await trackingSessionStorage.clearActive();
+            await stopOperatorTrackingAsync();
             setStoredSession(null);
+            setOperatorBgActive(false);
+            operatorBgActiveRef.current = false;
             stopWatch();
             return;
           }
@@ -175,6 +214,10 @@ export function useOperatorTrackingSession() {
       } catch {
         setRemoteStatus('active');
       }
+
+      const bgOk = await ensureOperatorBackgroundTracking();
+      operatorBgActiveRef.current = bgOk;
+      setOperatorBgActive(bgOk);
 
       await startWatch(local.sessionId);
     } finally {
@@ -223,6 +266,8 @@ export function useOperatorTrackingSession() {
     setBusy(true);
     setError(null);
     try {
+      await assertCanStartOperatorCapture(actorId, appRole);
+
       const session = await startTrackingSession({
         purpose,
         vehicle_label: label,
@@ -251,13 +296,29 @@ export function useOperatorTrackingSession() {
         });
       }
 
+      const bgOk = await startOperatorBackground();
+      if (!bgOk) {
+        setError(
+          'Captura iniciada sin segundo plano. Concede ubicación en segundo plano para registrar con pantalla apagada.',
+        );
+      }
+
       await startWatch(session.id);
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo iniciar la captura'));
     } finally {
       setBusy(false);
     }
-  }, [consentAccepted, vehicleLabel, notes, purpose, startWatch]);
+  }, [
+    actorId,
+    appRole,
+    consentAccepted,
+    vehicleLabel,
+    notes,
+    purpose,
+    startWatch,
+    startOperatorBackground,
+  ]);
 
   const endCapture = useCallback(async () => {
     const sessionId = sessionIdRef.current;
@@ -271,6 +332,7 @@ export function useOperatorTrackingSession() {
       if (__DEV__) {
         console.log('[tracking-session-end]', { sessionId: shortSessionId(sessionId) });
       }
+      await stopOperatorBackground();
       await trackingSessionStorage.clearActive();
       setStoredSession(null);
       setRemoteStatus(null);
@@ -280,10 +342,11 @@ export function useOperatorTrackingSession() {
     } finally {
       setBusy(false);
     }
-  }, [flushBuffer, stopWatch]);
+  }, [flushBuffer, stopWatch, stopOperatorBackground]);
 
   return {
     isActive,
+    operatorBgActive,
     storedSession,
     shortSessionId: storedSession ? shortSessionId(storedSession.sessionId) : null,
     remoteStatus,
@@ -304,5 +367,6 @@ export function useOperatorTrackingSession() {
     startCapture,
     endCapture,
     refresh: hydrateFromStorage,
+    syncOperatorBgState,
   };
 }
