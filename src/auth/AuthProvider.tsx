@@ -36,6 +36,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsLoading(true);
     try {
       const me = await authService.fetchCurrentUser();
+      if (!me.actor_id?.trim() || !isMobileSupportedRole(me.appRole)) {
+        throw new Error('Sesión sin actor operativo válido');
+      }
       if (isAdminRole(me.appRole)) {
         await authService.logout();
         setUser(null);

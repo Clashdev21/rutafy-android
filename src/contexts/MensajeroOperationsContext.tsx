@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
+import { useAuth } from '@/auth/useAuth';
 import { useMensajeroOperations } from '@/hooks/useMensajeroOperations';
 
 type MensajeroOperationsValue = ReturnType<typeof useMensajeroOperations>;
@@ -7,13 +8,16 @@ type MensajeroOperationsValue = ReturnType<typeof useMensajeroOperations>;
 const MensajeroOperationsContext = createContext<MensajeroOperationsValue | null>(null);
 
 type Props = {
-  actorId: string | null;
-  appRole: 'ADMIN' | 'TRANSPORTISTA' | 'MENSAJERO' | null;
   children: ReactNode;
 };
 
-export function MensajeroOperationsProvider({ actorId, appRole, children }: Props) {
-  const value = useMensajeroOperations(actorId, appRole);
+export function MensajeroOperationsProvider({ children }: Props) {
+  const { user } = useAuth();
+  const actorId = user?.actor_id?.trim() ?? null;
+  const appRole = user?.appRole ?? null;
+  const hasUser = Boolean(user);
+
+  const value = useMensajeroOperations(actorId, appRole, hasUser);
   return (
     <MensajeroOperationsContext.Provider value={value}>
       {children}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { syncBackgroundTracking } from '@/services/backgroundLocationService';
 import { useMessengerLocationHeartbeat } from '@/hooks/useMessengerLocationHeartbeat';
@@ -17,7 +17,11 @@ const POLL_MS = 15000;
 export function useMensajeroOperations(
   actorId: string | null,
   appRole: 'ADMIN' | 'TRANSPORTISTA' | 'MENSAJERO' | null,
+  hasUser: boolean,
 ) {
+  const lastActorIdRef = useRef<string | null>(null);
+  const lastAppRoleRef = useRef<'MENSAJERO' | null>(null);
+
   const [isOnline, setIsOnline] = useState(false);
   const [availabilitySyncing, setAvailabilitySyncing] = useState(false);
   const [myServices, setMyServices] = useState<Service[]>([]);
@@ -28,13 +32,41 @@ export function useMensajeroOperations(
   const [claimingServiceId, setClaimingServiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const canOperate = Boolean(actorId && isValidUuid(actorId));
+  useEffect(() => {
+    if (actorId && isValidUuid(actorId)) {
+      lastActorIdRef.current = actorId;
+    }
+    if (appRole === 'MENSAJERO') {
+      lastAppRoleRef.current = appRole;
+    }
+  }, [actorId, appRole]);
+
+  const activeService = useMemo(() => pickMensajeroActiveService(myServices), [myServices]);
+  const hasActiveOperational = isMensajeroOperationalActive(activeService);
+
+  const effectiveActorId = useMemo(() => {
+    if (actorId && isValidUuid(actorId)) return actorId;
+    if (hasActiveOperational && lastActorIdRef.current && isValidUuid(lastActorIdRef.current)) {
+      return lastActorIdRef.current;
+    }
+    return null;
+  }, [actorId, hasActiveOperational]);
+
+  const effectiveAppRole = useMemo((): typeof appRole => {
+    if (appRole === 'MENSAJERO') return appRole;
+    if (hasActiveOperational && lastAppRoleRef.current === 'MENSAJERO') {
+      return lastAppRoleRef.current;
+    }
+    return appRole;
+  }, [appRole, hasActiveOperational]);
+
+  const canOperate = Boolean(effectiveActorId && isValidUuid(effectiveActorId));
 
   const refreshMyServices = useCallback(async (silent = false) => {
-    if (!canOperate || !actorId) return;
+    if (!canOperate || !effectiveActorId) return;
     if (!silent) setLoadingMy(true);
     try {
-      const list = await mensajeroService.fetchMyServices(actorId);
+      const list = await mensajeroService.fetchMyServices(effectiveActorId);
       setMyServices(list);
       setError(null);
     } catch (e) {
@@ -42,10 +74,10 @@ export function useMensajeroOperations(
     } finally {
       if (!silent) setLoadingMy(false);
     }
-  }, [actorId, canOperate]);
+  }, [effectiveActorId, canOperate]);
 
   const refreshOffers = useCallback(async (silent = false, forceOnline = false) => {
-    if (!canOperate || !actorId || (!isOnline && !forceOnline)) {
+    if (!canOperate || !effectiveActorId || (!isOnline && !forceOnline)) {
       setAvailableServices([]);
       setOfferIdByServiceId({});
       return;
@@ -53,7 +85,7 @@ export function useMensajeroOperations(
     if (!silent) setLoadingOffers(true);
     try {
       const { services, offerIdByServiceId: map } =
-        await mensajeroService.fetchActiveOffers(actorId);
+        await mensajeroService.fetchActiveOffers(effectiveActorId);
       setAvailableServices(services);
       setOfferIdByServiceId(map);
     } catch (e) {
@@ -61,7 +93,7 @@ export function useMensajeroOperations(
     } finally {
       if (!silent) setLoadingOffers(false);
     }
-  }, [actorId, canOperate, isOnline]);
+  }, [effectiveActorId, canOperate, isOnline]);
 
   const refreshAll = useCallback(
     async (silent = false, forceOnline = false) => {
@@ -70,8 +102,6 @@ export function useMensajeroOperations(
     [refreshMyServices, refreshOffers],
   );
 
-  const activeService = useMemo(() => pickMensajeroActiveService(myServices), [myServices]);
-  const hasActiveOperational = isMensajeroOperationalActive(activeService);
   const effectiveIsOnline = isOnline || hasActiveOperational;
   const firstOffer = availableServices[0] ?? null;
 
@@ -79,7 +109,7 @@ export function useMensajeroOperations(
   usePolling(() => refreshAll(true), POLL_MS, pollEnabled);
 
   const toggleAvailability = useCallback(async () => {
-    if (!actorId || !canOperate) {
+    if (!effectiveActorId || !canOperate) {
       setError('No hay mensajero ID válido en la sesión');
       return;
     }
@@ -87,7 +117,7 @@ export function useMensajeroOperations(
     setAvailabilitySyncing(true);
     try {
       await mensajeroService.patchAvailability(
-        actorId,
+        effectiveActorId,
         nextOnline ? 'AVAILABLE' : 'OFFLINE',
       );
       setIsOnline(nextOnline);
@@ -103,11 +133,11 @@ export function useMensajeroOperations(
     } finally {
       setAvailabilitySyncing(false);
     }
-  }, [actorId, canOperate, isOnline, refreshOffers]);
+  }, [effectiveActorId, canOperate, isOnline, refreshOffers]);
 
   const acceptOffer = useCallback(
     async (serviceId: string) => {
-      if (!actorId || !canOperate) return;
+      if (!effectiveActorId || !canOperate) return;
       const offerId = offerIdByServiceId[serviceId];
       if (!offerId) {
         setError('No se encontró offer_id para este servicio');
@@ -116,7 +146,7 @@ export function useMensajeroOperations(
 
       setClaimingServiceId(serviceId);
       try {
-        await mensajeroService.acceptOffer(offerId, actorId);
+        await mensajeroService.acceptOffer(offerId, effectiveActorId);
         setAvailableServices((prev) => prev.filter((s) => s.service_id !== serviceId));
         setOfferIdByServiceId((prev) => {
           const next = { ...prev };
@@ -137,7 +167,7 @@ export function useMensajeroOperations(
         setClaimingServiceId(null);
       }
     },
-    [actorId, canOperate, offerIdByServiceId, refreshMyServices, refreshOffers],
+    [effectiveActorId, canOperate, offerIdByServiceId, refreshMyServices, refreshOffers],
   );
 
   const omitFirstOffer = useCallback(() => {
@@ -162,28 +192,39 @@ export function useMensajeroOperations(
   }, [effectiveIsOnline, activeService, firstOffer]);
 
   const locationHeartbeat = useMessengerLocationHeartbeat({
-    enabled: canOperate && appRole === 'MENSAJERO',
+    enabled: canOperate && effectiveAppRole === 'MENSAJERO',
     isOnline: effectiveIsOnline,
     uiState,
   });
 
   const shouldEnableBackgroundTracking =
     canOperate &&
-    appRole === 'MENSAJERO' &&
+    effectiveAppRole === 'MENSAJERO' &&
     (uiState === 'ASSIGNED' || uiState === 'IN_SERVICE');
 
   useEffect(() => {
     if (__DEV__) {
       console.log('[bg-tracking-effect]', {
-        shouldEnableBackgroundTracking,
-        uiState,
-        appRole,
+        actorId: effectiveActorId,
+        isActorIdValid: effectiveActorId ? isValidUuid(effectiveActorId) : false,
+        hasUser,
+        appRole: effectiveAppRole,
         canOperate,
+        uiState,
         activeServiceStatus: activeService?.status ?? null,
+        shouldEnableBackgroundTracking,
       });
     }
     void syncBackgroundTracking(shouldEnableBackgroundTracking);
-  }, [shouldEnableBackgroundTracking]);
+  }, [
+    shouldEnableBackgroundTracking,
+    effectiveActorId,
+    effectiveAppRole,
+    hasUser,
+    canOperate,
+    uiState,
+    activeService?.status,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -192,11 +233,11 @@ export function useMensajeroOperations(
   }, []);
 
   const handleCloseSuccess = useCallback(async () => {
-    if (!actorId || !canOperate) return;
+    if (!effectiveActorId || !canOperate) return;
 
     setAvailabilitySyncing(true);
     try {
-      await mensajeroService.patchAvailability(actorId, 'AVAILABLE');
+      await mensajeroService.patchAvailability(effectiveActorId, 'AVAILABLE');
       setIsOnline(true);
       setError(null);
       await refreshAll(false, true);
@@ -205,7 +246,7 @@ export function useMensajeroOperations(
     } finally {
       setAvailabilitySyncing(false);
     }
-  }, [actorId, canOperate, refreshAll]);
+  }, [effectiveActorId, canOperate, refreshAll]);
 
   return {
     isOnline,
