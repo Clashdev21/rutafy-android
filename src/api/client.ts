@@ -5,6 +5,11 @@ import { sessionEvents } from '@/auth/sessionEvents';
 import { tokenStorage } from '@/auth/tokenStorage';
 import { API_BASE_URL } from '@/config/env';
 import type { RefreshTokenResponse } from '@/types/auth';
+import {
+  isConfirmedAuthInvalidError,
+  isTransientNetworkError,
+  NETWORK_UNAVAILABLE_MESSAGE,
+} from '@/utils/networkErrors';
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -52,14 +57,41 @@ function isAuthRefreshExempt(config: InternalAxiosRequestConfig): boolean {
   return isPublicAuthRoute(config);
 }
 
-let refreshInFlight: Promise<string | null> | null = null;
+type RefreshAccessTokenResult =
+  | { status: 'success'; token: string }
+  | { status: 'network_error' }
+  | { status: 'auth_invalid' };
 
-async function refreshAccessTokenShared(): Promise<string | null> {
+let refreshInFlight: Promise<RefreshAccessTokenResult> | null = null;
+
+function logLogoutReason(reason: string, detail?: unknown): void {
+  if (__DEV__) {
+    console.log('[auth-logout-reason]', { reason, detail });
+  }
+}
+
+function clearAuthAndNotify(reason: string, detail?: unknown): void {
+  logLogoutReason(reason, detail);
+  void tokenStorage.clearAll();
+  sessionEvents.emitSessionExpired();
+}
+
+async function refreshAccessTokenShared(): Promise<RefreshAccessTokenResult> {
   if (!refreshInFlight) {
-    refreshInFlight = (async (): Promise<string | null> => {
+    refreshInFlight = (async (): Promise<RefreshAccessTokenResult> => {
       try {
         const rt = await tokenStorage.getRefreshToken();
-        if (!rt) return null;
+        if (!rt) {
+          if (__DEV__) {
+            console.log('[auth-refresh-failed]', { reason: 'missing_refresh_token' });
+          }
+          return { status: 'auth_invalid' };
+        }
+
+        if (__DEV__) {
+          console.log('[auth-refresh-start]');
+        }
+
         const { data } = await refreshClient.post<RefreshTokenResponse>(
           AUTH_ENDPOINTS.refresh,
           { refresh_token: rt },
@@ -68,22 +100,47 @@ async function refreshAccessTokenShared(): Promise<string | null> {
         if (typeof at === 'string' && at.trim()) {
           const trimmed = at.trim();
           await tokenStorage.setAccessToken(trimmed);
-          return trimmed;
+          if (__DEV__) {
+            console.log('[auth-refresh-success]');
+          }
+          return { status: 'success', token: trimmed };
         }
-        return null;
-      } catch {
-        return null;
+
+        if (__DEV__) {
+          console.log('[auth-refresh-failed]', { reason: 'invalid_refresh_response' });
+        }
+        return { status: 'auth_invalid' };
+      } catch (error) {
+        if (isTransientNetworkError(error)) {
+          if (__DEV__) {
+            console.log('[auth-network-error]', { context: 'refresh_token' });
+          }
+          return { status: 'network_error' };
+        }
+
+        if (isConfirmedAuthInvalidError(error)) {
+          if (__DEV__) {
+            console.log('[auth-refresh-failed]', {
+              reason: 'refresh_token_rejected',
+              status: axios.isAxiosError(error) ? error.response?.status : null,
+            });
+          }
+          return { status: 'auth_invalid' };
+        }
+
+        if (__DEV__) {
+          console.log('[auth-network-error]', {
+            context: 'refresh_token_unexpected',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return { status: 'network_error' };
       } finally {
         refreshInFlight = null;
       }
     })();
   }
   return refreshInFlight;
-}
-
-function clearAuthAndNotify(): void {
-  void tokenStorage.clearAll();
-  sessionEvents.emitSessionExpired();
 }
 
 apiClient.interceptors.request.use(async (config) => {
@@ -107,6 +164,16 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (isTransientNetworkError(error)) {
+      if (__DEV__) {
+        console.log('[auth-network-error]', {
+          context: 'api_request',
+          url: axios.isAxiosError(error) ? error.config?.url : null,
+        });
+      }
+      return Promise.reject(error);
+    }
+
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
       return Promise.reject(error);
     }
@@ -121,29 +188,52 @@ apiClient.interceptors.response.use(
     }
 
     if (prevRequest._retry) {
-      clearAuthAndNotify();
+      clearAuthAndNotify('access_token_retry_401');
       return Promise.reject(error);
     }
 
     const rt = await tokenStorage.getRefreshToken();
     if (!rt) {
-      clearAuthAndNotify();
+      clearAuthAndNotify('missing_refresh_token_on_401');
+      return Promise.reject(error);
+    }
+
+    const refreshResult = await refreshAccessTokenShared();
+    if (refreshResult.status === 'network_error') {
+      if (__DEV__) {
+        console.log('[auth-network-error]', { context: '401_refresh_skipped' });
+      }
+      const networkError = new axios.AxiosError(
+        NETWORK_UNAVAILABLE_MESSAGE,
+        'ERR_NETWORK',
+        prevRequest,
+        undefined,
+        undefined,
+      );
+      return Promise.reject(networkError);
+    }
+
+    if (refreshResult.status === 'auth_invalid') {
+      clearAuthAndNotify('refresh_token_invalid');
       return Promise.reject(error);
     }
 
     try {
-      const newAccess = await refreshAccessTokenShared();
-      if (!newAccess) {
-        clearAuthAndNotify();
-        return Promise.reject(error);
-      }
       prevRequest.headers = prevRequest.headers ?? {};
-      prevRequest.headers.Authorization = `Bearer ${newAccess}`;
+      prevRequest.headers.Authorization = `Bearer ${refreshResult.token}`;
       prevRequest._retry = true;
       return apiClient(prevRequest);
-    } catch {
-      clearAuthAndNotify();
-      return Promise.reject(error);
+    } catch (retryError) {
+      if (isTransientNetworkError(retryError)) {
+        if (__DEV__) {
+          console.log('[auth-network-error]', { context: '401_retry_request' });
+        }
+        return Promise.reject(retryError);
+      }
+      if (isConfirmedAuthInvalidError(retryError)) {
+        clearAuthAndNotify('retry_request_401');
+      }
+      return Promise.reject(retryError);
     }
   },
 );

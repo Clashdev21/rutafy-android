@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext';
 import { sessionEvents } from '@/auth/sessionEvents';
@@ -7,20 +8,34 @@ import { tokenStorage } from '@/auth/tokenStorage';
 import * as authService from '@/services/authService';
 import type { AuthUser, LoginCredentials } from '@/types/auth';
 import { getApiErrorMessage } from '@/utils/errors';
+import {
+  isConfirmedAuthInvalidError,
+  isTransientNetworkError,
+  NETWORK_UNAVAILABLE_MESSAGE,
+} from '@/utils/networkErrors';
 import { isAdminRole, isMobileSupportedRole } from '@/utils/roles';
 
 type AuthProviderProps = {
   children: ReactNode;
 };
 
+function logLogoutReason(reason: string, detail?: unknown): void {
+  if (__DEV__) {
+    console.log('[auth-logout-reason]', { reason, detail });
+  }
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [hasPersistedSession, setHasPersistedSession] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const clearLocalSession = useCallback(async () => {
+  const clearLocalSession = useCallback(async (reason: string, detail?: unknown) => {
+    logLogoutReason(reason, detail);
     await tokenStorage.clearAll();
     setUser(null);
+    setHasPersistedSession(false);
     setError(null);
   }, []);
 
@@ -28,11 +43,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const access = await tokenStorage.getAccessToken();
     if (!access) {
       setUser(null);
+      setHasPersistedSession(false);
       setError(null);
       setIsLoading(false);
       return;
     }
 
+    setHasPersistedSession(true);
     setIsLoading(true);
     try {
       const me = await authService.fetchCurrentUser();
@@ -42,19 +59,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (isAdminRole(me.appRole)) {
         await authService.logout();
         setUser(null);
+        setHasPersistedSession(false);
         setError('Las cuentas de administrador solo están disponibles en la web.');
         return;
       }
       if (!isMobileSupportedRole(me.appRole)) {
         await authService.logout();
         setUser(null);
+        setHasPersistedSession(false);
         setError('Este tipo de cuenta no está disponible en la app móvil.');
         return;
       }
       setUser(me);
       setError(null);
     } catch (e) {
-      await clearLocalSession();
+      if (isTransientNetworkError(e)) {
+        if (__DEV__) {
+          console.log('[auth-network-error]', { context: 'refresh_session' });
+        }
+        setError(NETWORK_UNAVAILABLE_MESSAGE);
+        return;
+      }
+
+      if (isConfirmedAuthInvalidError(e)) {
+        await clearLocalSession('refresh_session_auth_invalid');
+        setError(getApiErrorMessage(e, 'Sesión expirada. Inicia sesión de nuevo.'));
+        return;
+      }
+
+      await clearLocalSession('refresh_session_validation_failed', {
+        message: getApiErrorMessage(e, 'No se pudo validar la sesión'),
+      });
       setError(getApiErrorMessage(e, 'No se pudo validar la sesión'));
     } finally {
       setIsLoading(false);
@@ -68,11 +103,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     return sessionEvents.onSessionExpired(() => {
       void (async () => {
-        await clearLocalSession();
+        logLogoutReason('session_expired_event');
+        await tokenStorage.clearAll();
+        setUser(null);
+        setHasPersistedSession(false);
+        setError(null);
         router.replace('/login');
       })();
     });
-  }, [clearLocalSession]);
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && error === NETWORK_UNAVAILABLE_MESSAGE) {
+        void refreshSession();
+      }
+    });
+    return () => sub.remove();
+  }, [error, refreshSession]);
 
   const login = useCallback(async (credentials: LoginCredentials): Promise<AuthUser> => {
     setIsLoading(true);
@@ -82,16 +130,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (isAdminRole(me.appRole)) {
         await authService.logout();
         setUser(null);
+        setHasPersistedSession(false);
         setError('Las cuentas de administrador solo están disponibles en la web.');
         throw new Error('ADMIN_NOT_SUPPORTED');
       }
       if (!isMobileSupportedRole(me.appRole)) {
         await authService.logout();
         setUser(null);
+        setHasPersistedSession(false);
         setError('Este tipo de cuenta no está disponible en la app móvil.');
         throw new Error('ROLE_NOT_SUPPORTED');
       }
       setUser(me);
+      setHasPersistedSession(true);
       return me;
     } catch (e) {
       if (
@@ -100,7 +151,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       ) {
         throw e;
       }
-      const message = getApiErrorMessage(e, 'Error al iniciar sesión');
+      const message = isTransientNetworkError(e)
+        ? NETWORK_UNAVAILABLE_MESSAGE
+        : getApiErrorMessage(e, 'Error al iniciar sesión');
       setError(message);
       throw e;
     } finally {
@@ -109,30 +162,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const logout = useCallback(async () => {
+    logLogoutReason('user_logout');
     setIsLoading(true);
     try {
       await authService.logout();
     } catch {
-      await clearLocalSession();
+      await tokenStorage.clearAll();
     } finally {
       setUser(null);
+      setHasPersistedSession(false);
       setError(null);
       setIsLoading(false);
       router.replace('/login');
     }
-  }, [clearLocalSession]);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isLoading,
-      isAuthenticated: Boolean(user),
+      isAuthenticated: Boolean(user) || hasPersistedSession,
       error,
       login,
       logout,
       refreshSession,
     }),
-    [user, isLoading, error, login, logout, refreshSession],
+    [user, isLoading, hasPersistedSession, error, login, logout, refreshSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

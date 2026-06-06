@@ -116,9 +116,11 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
     }
 
     await Location.startLocationUpdatesAsync(OPERATOR_TRACKING_TASK_NAME, {
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
       timeInterval: TIME_INTERVAL_MS,
       distanceInterval: DISTANCE_INTERVAL_M,
+      deferredUpdatesInterval: TIME_INTERVAL_MS,
+      deferredUpdatesDistance: DISTANCE_INTERVAL_M,
       pausesUpdatesAutomatically: false,
       foregroundService: {
         notificationTitle: 'Captura logística activa',

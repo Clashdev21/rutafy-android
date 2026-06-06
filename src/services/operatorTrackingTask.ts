@@ -88,6 +88,16 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     if (points.length === 0) return;
 
     if (__DEV__) {
+      for (const point of points) {
+        console.log('[operator-bg-point-quality]', {
+          accuracy_m: point.accuracy_m,
+          speed_mps: point.speed_mps,
+          heading: point.heading,
+        });
+      }
+    }
+
+    if (__DEV__) {
       console.log('[operator-bg-event]', {
         sessionId: shortSessionId(stored.sessionId),
         count: points.length,
