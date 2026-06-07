@@ -1,24 +1,42 @@
+/** Identidad visual Rutafy — propuesta 4 (logística empresarial). */
+export const RutafyBrandPalette = {
+  greenPrimary: '#16A34A',
+  greenAccent: '#86EFAC',
+  grayDark: '#1F2937',
+  backgroundLight: '#F8FAFC',
+  white: '#FFFFFF',
+} as const;
+
 export const RutafyColors = {
-  brand: '#2A9D8F',
-  brandDark: '#238b7e',
-  navy: '#1E3A5F',
-  navyDark: '#17304f',
-  loginBackground: '#102033',
+  brand: RutafyBrandPalette.greenPrimary,
+  brandLight: RutafyBrandPalette.greenAccent,
+  brandDark: '#15803D',
+  navy: RutafyBrandPalette.grayDark,
+  navyDark: '#111827',
+  loginBackground: RutafyBrandPalette.backgroundLight,
   textPrimary: '#0F172A',
   textSecondary: '#64748B',
-  success: '#16A34A',
+  success: RutafyBrandPalette.greenPrimary,
   warning: '#F59E0B',
   danger: '#DC2626',
-  white: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceMuted: '#F8FAFC',
+  white: RutafyBrandPalette.white,
+  surface: RutafyBrandPalette.white,
+  surfaceMuted: RutafyBrandPalette.backgroundLight,
   border: '#E2E8F0',
   borderMuted: '#CBD5E1',
   heroGlass: 'rgba(255,255,255,0.12)',
   heroGlassBorder: 'rgba(255,255,255,0.15)',
-  brandTint: 'rgba(42,157,143,0.1)',
-  brandTintBorder: 'rgba(42,157,143,0.25)',
-  offerTimer: '#3A86FF',
+  brandTint: 'rgba(22,163,74,0.1)',
+  brandTintBorder: 'rgba(22,163,74,0.25)',
+  offerTimer: '#16A34A',
+} as const;
+
+export const RutafyTypography = {
+  fontFamily: 'PlusJakartaSans_400Regular',
+  fontFamilyMedium: 'PlusJakartaSans_500Medium',
+  fontFamilySemiBold: 'PlusJakartaSans_600SemiBold',
+  fontFamilyBold: 'PlusJakartaSans_700Bold',
+  webFallback: 'Plus Jakarta Sans, system-ui, sans-serif',
 } as const;
 
 export const RutafyRadius = {
@@ -29,7 +47,7 @@ export const RutafyRadius = {
 
 export const RutafyShadow = {
   card: {
-    shadowColor: '#0F172A',
+    shadowColor: '#1F2937',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -37,9 +55,22 @@ export const RutafyShadow = {
   },
 } as const;
 
+export const RutafyStackHeaderOptions = {
+  headerStyle: { backgroundColor: RutafyColors.white },
+  headerTintColor: RutafyColors.navy,
+  headerTitleStyle: {
+    fontFamily: RutafyTypography.fontFamilySemiBold,
+    fontWeight: '600' as const,
+    color: RutafyColors.navy,
+    fontSize: 17,
+  },
+  headerShadowVisible: false,
+  contentStyle: { backgroundColor: RutafyColors.surfaceMuted },
+} as const;
+
 export const RutafyStatusBadgeColors: Record<string, { bg: string; text: string }> = {
   REQUESTED: { bg: '#FEF9C3', text: '#854D0E' },
-  OFFERED: { bg: '#FFEDD5', text: '#9A3412' },
+  OFFERED: { bg: '#DCFCE7', text: '#166534' },
   CLAIMED: { bg: '#DBEAFE', text: '#1E40AF' },
   STARTED: { bg: '#E0E7FF', text: '#3730A3' },
   CLOSED: { bg: '#DCFCE7', text: '#166534' },
@@ -50,5 +81,5 @@ export const RutafyStatusBadgeColors: Record<string, { bg: string; text: string 
   FAILED_DROPOFF: { bg: '#FFEDD5', text: '#9A3412' },
   NO_SHOW: { bg: '#F3F4F6', text: '#374151' },
   PENDING: { bg: '#FEF9C3', text: '#854D0E' },
-  SEARCHING: { bg: '#FFEDD5', text: '#9A3412' },
+  SEARCHING: { bg: '#DCFCE7', text: '#166534' },
 };

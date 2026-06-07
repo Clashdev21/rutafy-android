@@ -1,8 +1,10 @@
 import { Redirect } from 'expo-router';
-import { ActivityIndicator, StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
-import { ThemedView } from '@/components/themed-view';
+import { RutafyLogo } from '@/components/brand/RutafyLogo';
+import { RutafyColors, RutafyTypography } from '@/constants/rutafyTheme';
+import { Spacing } from '@/constants/theme';
 import { getHomeHrefForUser } from '@/utils/roles';
 
 export default function IndexScreen() {
@@ -10,9 +12,11 @@ export default function IndexScreen() {
 
   if (isLoading) {
     return (
-      <ThemedView style={styles.loading}>
-        <ActivityIndicator size="large" />
-      </ThemedView>
+      <View style={styles.loading}>
+        <RutafyLogo variant="full" iconSize={48} />
+        <ActivityIndicator size="large" color={RutafyColors.brand} style={styles.spinner} />
+        <Text style={styles.loadingText}>Cargando operación…</Text>
+      </View>
     );
   }
 
@@ -28,5 +32,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: RutafyColors.loginBackground,
+    padding: Spacing.four,
+    gap: Spacing.three,
+  },
+  spinner: { marginTop: Spacing.two },
+  loadingText: {
+    fontSize: 14,
+    color: RutafyColors.textSecondary,
+    fontFamily: RutafyTypography.fontFamily,
   },
 });

@@ -1,26 +1,27 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Tema base de la app (light/dark) + tipografía Rutafy.
  */
 
 import '@/global.css';
 
 import { Platform } from 'react-native';
 
+import { RutafyBrandPalette, RutafyTypography } from '@/constants/rutafyTheme';
+
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: RutafyBrandPalette.grayDark,
+    background: RutafyBrandPalette.backgroundLight,
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#E2E8F0',
+    textSecondary: '#64748B',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#F8FAFC',
+    background: '#111827',
+    backgroundElement: '#1F2937',
+    backgroundSelected: '#374151',
+    textSecondary: '#94A3B8',
   },
 } as const;
 
@@ -28,19 +29,21 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
+    sans: RutafyTypography.fontFamily,
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
+    rounded: RutafyTypography.fontFamilyMedium,
     mono: 'ui-monospace',
   },
-  default: {
-    sans: 'normal',
+  android: {
+    sans: RutafyTypography.fontFamily,
     serif: 'serif',
-    rounded: 'normal',
+    rounded: RutafyTypography.fontFamilyMedium,
+    mono: 'monospace',
+  },
+  default: {
+    sans: RutafyTypography.fontFamily,
+    serif: 'serif',
+    rounded: RutafyTypography.fontFamilyMedium,
     mono: 'monospace',
   },
   web: {

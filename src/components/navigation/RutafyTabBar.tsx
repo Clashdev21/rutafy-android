@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RutafyColors } from '@/constants/rutafyTheme';
+import { RutafyColors, RutafyTypography } from '@/constants/rutafyTheme';
 
 const TAB_TITLES: Record<string, string> = {
   index: 'Inicio',
@@ -98,9 +98,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: RutafyColors.textSecondary,
+    fontFamily: RutafyTypography.fontFamilyMedium,
   },
   labelFocused: {
     color: RutafyColors.brand,
     fontWeight: '700',
+    fontFamily: RutafyTypography.fontFamilyBold,
   },
 });

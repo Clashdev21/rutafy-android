@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
     "@expo/ui": "~56.0.16",
     "axios": "^1.16.1",
     "expo": "~56.0.9",
@@ -45,6 +46,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "web:dev": "expo start --web",
     "lint": "expo lint"
   },
   "private": true
