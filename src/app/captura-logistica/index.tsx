@@ -1,3 +1,4 @@
+import { type Href, router } from 'expo-router';
 import { useMemo } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,7 @@ import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import { useOperatorTrackingSession } from '@/hooks/useOperatorTrackingSession';
 import type { TrackingSessionPurpose } from '@/types/tracking';
+import { formatTrackingDuration } from '@/utils/trackingSessionFormat';
 
 const PURPOSE_OPTIONS: { value: TrackingSessionPurpose; label: string }[] = [
   { value: 'operacion_interna', label: 'Operación interna' },
@@ -28,16 +30,11 @@ const PURPOSE_OPTIONS: { value: TrackingSessionPurpose; label: string }[] = [
 const CONSENT_TEXT =
   'Autorizo iniciar una sesión de captura logística. Rutafy registrará ubicación, precisión GPS, velocidad aproximada, dirección, batería y estado de la app únicamente mientras esta sesión esté activa.';
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
-}
-
 export default function CapturaLogisticaScreen() {
   const insets = useSafeAreaInsets();
   const {
     isActive,
+    storedSession,
     shortSessionId,
     remoteStatus,
     purpose,
@@ -81,7 +78,7 @@ export default function CapturaLogisticaScreen() {
             <Text style={styles.statusLine}>
               Estado remoto: {remoteStatus ?? 'active'}
             </Text>
-            <Text style={styles.statusLine}>Tiempo: {formatDuration(elapsedSeconds)}</Text>
+            <Text style={styles.statusLine}>Tiempo: {formatTrackingDuration(elapsedSeconds)}</Text>
             <Text style={styles.statusLine}>Puntos enviados: {pointsSent}</Text>
             <Text style={styles.statusLine}>
               Último punto: {lastPointAt ? new Date(lastPointAt).toLocaleTimeString() : '—'}
@@ -95,6 +92,24 @@ export default function CapturaLogisticaScreen() {
       </RutafyCard>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      <Pressable
+        style={styles.linkBtn}
+        onPress={() => router.push('/captura-logistica/historial' as Href)}>
+        <Text style={styles.linkBtnText}>Historial de capturas</Text>
+      </Pressable>
+
+      {isActive && storedSession?.sessionId ? (
+        <Pressable
+          style={styles.linkBtnSecondary}
+          onPress={() =>
+            router.push(
+              `/captura-logistica/${encodeURIComponent(storedSession.sessionId)}` as Href,
+            )
+          }>
+          <Text style={styles.linkBtnText}>Ver resumen operacional</Text>
+        </Pressable>
+      ) : null}
 
       {!isActive ? (
         <RutafyCard style={styles.formCard}>
@@ -164,7 +179,14 @@ export default function CapturaLogisticaScreen() {
         <RutafyButton
           label={busy ? 'Finalizando…' : 'Finalizar captura'}
           variant="danger"
-          onPress={() => void endCapture()}
+          onPress={() => {
+            void (async () => {
+              const endedId = await endCapture();
+              if (endedId) {
+                router.push(`/captura-logistica/${encodeURIComponent(endedId)}` as Href);
+              }
+            })();
+          }}
           disabled={busy}
           loading={busy}
         />
@@ -273,6 +295,25 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 13,
     color: RutafyColors.danger,
+  },
+  linkBtn: {
+    borderWidth: 1,
+    borderColor: RutafyColors.brand,
+    borderRadius: RutafyRadius.button,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+  },
+  linkBtnSecondary: {
+    borderWidth: 1,
+    borderColor: RutafyColors.borderMuted,
+    borderRadius: RutafyRadius.button,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+    backgroundColor: RutafyColors.white,
+  },
+  linkBtnText: {
+    fontWeight: '600',
+    color: RutafyColors.brand,
   },
   loader: { marginVertical: Spacing.two },
 });

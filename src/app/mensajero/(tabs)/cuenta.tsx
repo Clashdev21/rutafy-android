@@ -53,6 +53,11 @@ export default function MensajeroCuentaScreen() {
           onPress={() => router.push('/captura-logistica' as Href)}>
           <Text style={styles.linkBtnText}>Captura logística</Text>
         </Pressable>
+        <Pressable
+          style={styles.linkBtnOutline}
+          onPress={() => router.push('/captura-logistica/historial' as Href)}>
+          <Text style={styles.linkBtnText}>Historial de capturas</Text>
+        </Pressable>
       </RutafyCard>
     </RutafyCuentaScreen>
   );
@@ -92,6 +97,14 @@ const styles = StyleSheet.create({
     borderRadius: RutafyRadius.button,
     paddingVertical: Spacing.two,
     alignItems: 'center',
+  },
+  linkBtnOutline: {
+    borderWidth: 1,
+    borderColor: RutafyColors.borderMuted,
+    borderRadius: RutafyRadius.button,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+    backgroundColor: RutafyColors.white,
   },
   linkBtnText: {
     fontWeight: '600',

@@ -24,6 +24,41 @@ export type TrackingSession = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type TrackingSessionStats = {
+  point_count?: number;
+  avg_accuracy_m?: number | null;
+  max_accuracy_m?: number | null;
+};
+
+export type TrackingPoint = {
+  lat: number;
+  lng: number;
+  captured_at: string;
+  accuracy_m?: number | null;
+  speed_mps?: number | null;
+  app_state?: TrackingPointAppState;
+};
+
+export type TrackingSessionDetail = TrackingSession & {
+  stats?: TrackingSessionStats;
+  recent_points?: TrackingPoint[];
+};
+
+export type TrackingTimelineEventKind =
+  | 'session_start'
+  | 'consent'
+  | 'point'
+  | 'heartbeat'
+  | 'session_end';
+
+export type TrackingTimelineEvent = {
+  id: string;
+  kind: TrackingTimelineEventKind;
+  label: string;
+  at: string;
+  detail?: string;
+};
+
 export type TrackingPointInput = {
   lat: number;
   lng: number;

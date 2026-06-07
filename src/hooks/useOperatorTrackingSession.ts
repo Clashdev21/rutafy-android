@@ -354,9 +354,9 @@ export function useOperatorTrackingSession() {
     user,
   ]);
 
-  const endCapture = useCallback(async () => {
+  const endCapture = useCallback(async (): Promise<string | null> => {
     const sessionId = sessionIdRef.current;
-    if (!sessionId) return;
+    if (!sessionId) return null;
 
     setBusy(true);
     setError(null);
@@ -371,8 +371,10 @@ export function useOperatorTrackingSession() {
       setStoredSession(null);
       setRemoteStatus(null);
       stopWatch();
+      return sessionId;
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo finalizar la captura'));
+      return null;
     } finally {
       setBusy(false);
     }
