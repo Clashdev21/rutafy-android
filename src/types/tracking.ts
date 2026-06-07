@@ -14,6 +14,9 @@ export type TrackingSession = {
   status: TrackingSessionStatus;
   purpose: TrackingSessionPurpose;
   vehicle_label: string;
+  owner_user_id?: string;
+  actor_id?: string;
+  actor_type?: string | null;
   consent_at?: string;
   started_at?: string;
   ended_at?: string | null;
@@ -35,6 +38,9 @@ export type TrackingPointInput = {
 
 export type StoredTrackingSession = {
   sessionId: string;
+  ownerUserId: string;
+  actorId: string;
+  actorType: string | null;
   purpose: TrackingSessionPurpose;
   vehicleLabel: string;
   startedAt: string;

@@ -23,6 +23,12 @@ import type {
 } from '@/types/tracking';
 import { getApiErrorMessage } from '@/utils/errors';
 import { assertCanStartOperatorCapture } from '@/utils/operatorTrackingGuards';
+import {
+  buildStoredTrackingSession,
+  clearActiveTrackingSession,
+  isStoredTrackingSessionOwnedByUser,
+  isTrackingSessionForbiddenOrNotFound,
+} from '@/utils/trackingSessionOwnership';
 import { toTrackingPoint } from '@/utils/trackingPointMapper';
 
 const BATCH_FLUSH_MS = 12000;
@@ -36,7 +42,7 @@ function shortSessionId(id: string): string {
 }
 
 export function useOperatorTrackingSession() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const actorId = user?.actor_id?.trim() ?? null;
   const appRole = user?.appRole ?? null;
 
@@ -181,15 +187,31 @@ export function useOperatorTrackingSession() {
     setOperatorBgActive(false);
   }, []);
 
+  const resetInactiveSessionState = useCallback(() => {
+    setStoredSession(null);
+    setRemoteStatus(null);
+    setOperatorBgActive(false);
+    operatorBgActiveRef.current = false;
+    setElapsedSeconds(0);
+    setPointsSent(0);
+    setLastPointAt(null);
+  }, []);
+
   const hydrateFromStorage = useCallback(async () => {
     setLoading(true);
     try {
+      if (authLoading) return;
+
       const local = await trackingSessionStorage.getActive();
       if (!local) {
-        setStoredSession(null);
-        setRemoteStatus(null);
-        setOperatorBgActive(false);
-        operatorBgActiveRef.current = false;
+        resetInactiveSessionState();
+        return;
+      }
+
+      if (!isStoredTrackingSessionOwnedByUser(local, user)) {
+        await clearActiveTrackingSession('owner_mismatch');
+        stopWatch();
+        resetInactiveSessionState();
         return;
       }
 
@@ -199,19 +221,20 @@ export function useOperatorTrackingSession() {
 
       try {
         const remote = await fetchTrackingSession(local.sessionId);
-        if (remote) {
-          setRemoteStatus(remote.status);
-          if (remote.status !== 'active') {
-            await trackingSessionStorage.clearActive();
-            await stopOperatorTrackingAsync();
-            setStoredSession(null);
-            setOperatorBgActive(false);
-            operatorBgActiveRef.current = false;
-            stopWatch();
-            return;
-          }
+        if (!remote || remote.status !== 'active') {
+          await clearActiveTrackingSession('remote_inactive');
+          stopWatch();
+          resetInactiveSessionState();
+          return;
         }
-      } catch {
+        setRemoteStatus(remote.status);
+      } catch (e) {
+        if (isTrackingSessionForbiddenOrNotFound(e)) {
+          await clearActiveTrackingSession('remote_forbidden');
+          stopWatch();
+          resetInactiveSessionState();
+          return;
+        }
         setRemoteStatus('active');
       }
 
@@ -223,14 +246,25 @@ export function useOperatorTrackingSession() {
     } finally {
       setLoading(false);
     }
-  }, [startWatch, stopWatch]);
+  }, [authLoading, resetInactiveSessionState, startWatch, stopWatch, user]);
 
   useEffect(() => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
     void hydrateFromStorage();
     return () => {
       stopWatch();
     };
-  }, [hydrateFromStorage, stopWatch]);
+  }, [
+    authLoading,
+    hydrateFromStorage,
+    stopWatch,
+    user?.user_id,
+    user?.actor_id,
+    user?.actor_type,
+  ]);
 
   useEffect(() => {
     if (!isActive || !storedSession?.startedAt) {
@@ -266,6 +300,10 @@ export function useOperatorTrackingSession() {
     setBusy(true);
     setError(null);
     try {
+      if (!user) {
+        throw new Error('Debes iniciar sesión para iniciar la captura.');
+      }
+
       await assertCanStartOperatorCapture(actorId, appRole);
 
       const session = await startTrackingSession({
@@ -276,12 +314,7 @@ export function useOperatorTrackingSession() {
         metadata: { source: 'android_mvp' },
       });
 
-      const stored: StoredTrackingSession = {
-        sessionId: session.id,
-        purpose: session.purpose,
-        vehicleLabel: session.vehicle_label || label,
-        startedAt: session.started_at ?? new Date().toISOString(),
-      };
+      const stored = buildStoredTrackingSession(session, user, label);
 
       await trackingSessionStorage.setActive(stored);
       setStoredSession(stored);
@@ -318,6 +351,7 @@ export function useOperatorTrackingSession() {
     purpose,
     startWatch,
     startOperatorBackground,
+    user,
   ]);
 
   const endCapture = useCallback(async () => {
