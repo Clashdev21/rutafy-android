@@ -1,5 +1,6 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import {
@@ -15,6 +16,7 @@ import {
   startOperatorTrackingAsync,
   stopOperatorTrackingAsync,
 } from '@/services/operatorTrackingService';
+import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type {
   StoredTrackingSession,
@@ -23,6 +25,7 @@ import type {
 } from '@/types/tracking';
 import { getApiErrorMessage } from '@/utils/errors';
 import { assertCanStartOperatorCapture } from '@/utils/operatorTrackingGuards';
+import { logOperatorBgHealth } from '@/utils/operatorTrackingHealthAudit';
 import {
   buildStoredTrackingSession,
   clearActiveTrackingSession,
@@ -59,6 +62,7 @@ export function useOperatorTrackingSession() {
   const [lastPointAt, setLastPointAt] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [operatorBgActive, setOperatorBgActive] = useState(false);
+  const [healthRefreshKey, setHealthRefreshKey] = useState(0);
 
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const bufferRef = useRef<TrackingPointInput[]>([]);
@@ -67,6 +71,7 @@ export function useOperatorTrackingSession() {
   const sessionIdRef = useRef<string | null>(null);
   const storedSessionRef = useRef<StoredTrackingSession | null>(null);
   const operatorBgActiveRef = useRef(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const isActive = Boolean(storedSession?.sessionId);
 
@@ -85,6 +90,12 @@ export function useOperatorTrackingSession() {
     setOperatorBgActive(started);
     return started;
   }, []);
+
+  const runOperatorBgHealthCheck = useCallback(async () => {
+    await syncOperatorBgState();
+    await logOperatorBgHealth();
+    setHealthRefreshKey((n) => n + 1);
+  }, [syncOperatorBgState]);
 
   const stopWatch = useCallback(() => {
     watchRef.current?.remove();
@@ -282,6 +293,21 @@ export function useOperatorTrackingSession() {
     return () => clearInterval(id);
   }, [isActive, storedSession?.startedAt]);
 
+  useEffect(() => {
+    if (!isActive) return;
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextState;
+      const wasBackground = prev === 'background' || prev === 'inactive';
+      if (wasBackground && nextState === 'active') {
+        void runOperatorBgHealthCheck();
+      }
+    });
+
+    return () => sub.remove();
+  }, [isActive, runOperatorBgHealthCheck]);
+
   const startCapture = useCallback(async () => {
     if (storedSessionRef.current) {
       setError('Ya hay una captura logística activa.');
@@ -316,6 +342,7 @@ export function useOperatorTrackingSession() {
 
       const stored = buildStoredTrackingSession(session, user, label);
 
+      await operatorTrackingHealthStorage.clear();
       await trackingSessionStorage.setActive(stored);
       setStoredSession(stored);
       setRemoteStatus(session.status);
@@ -337,6 +364,7 @@ export function useOperatorTrackingSession() {
       }
 
       await startWatch(session.id);
+      void runOperatorBgHealthCheck();
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo iniciar la captura'));
     } finally {
@@ -352,6 +380,7 @@ export function useOperatorTrackingSession() {
     startWatch,
     startOperatorBackground,
     user,
+    runOperatorBgHealthCheck,
   ]);
 
   const endCapture = useCallback(async (): Promise<string | null> => {
@@ -404,5 +433,7 @@ export function useOperatorTrackingSession() {
     endCapture,
     refresh: hydrateFromStorage,
     syncOperatorBgState,
+    runOperatorBgHealthCheck,
+    healthRefreshKey,
   };
 }

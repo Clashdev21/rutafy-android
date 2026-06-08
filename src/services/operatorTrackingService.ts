@@ -66,6 +66,10 @@ async function isMessengerBackgroundTrackingStarted(): Promise<boolean> {
   }
 }
 
+export async function inspectOperatorTrackingForegroundService(): Promise<boolean> {
+  return isOperatorTrackingStartedAsync();
+}
+
 export async function isOperatorTrackingStartedAsync(): Promise<boolean> {
   if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     return false;

@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { RutafyCard } from '@/components/rutafy/RutafyCard';
+import { OperatorTrackingHealthPanel } from '@/components/tracking/OperatorTrackingHealthPanel';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import { useOperatorTrackingSession } from '@/hooks/useOperatorTrackingSession';
@@ -53,6 +54,7 @@ export default function CapturaLogisticaScreen() {
     elapsedSeconds,
     startCapture,
     endCapture,
+    healthRefreshKey,
   } = useOperatorTrackingSession();
 
   const formDisabled = isActive || busy || loading;
@@ -92,6 +94,10 @@ export default function CapturaLogisticaScreen() {
       </RutafyCard>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {__DEV__ && isActive ? (
+        <OperatorTrackingHealthPanel refreshKey={healthRefreshKey} />
+      ) : null}
 
       <Pressable
         style={styles.linkBtn}
