@@ -6,7 +6,7 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext';
 import { sessionEvents } from '@/auth/sessionEvents';
 import { tokenStorage } from '@/auth/tokenStorage';
 import * as authService from '@/services/authService';
-import type { AuthUser, LoginCredentials } from '@/types/auth';
+import type { AuthUser, LoginCredentials, RegisterTransportistaPayload } from '@/types/auth';
 import { getApiErrorMessage } from '@/utils/errors';
 import {
   isConfirmedAuthInvalidError,
@@ -122,32 +122,45 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => sub.remove();
   }, [error, refreshSession]);
 
+  const finalizeAuthenticatedUser = useCallback(async (me: AuthUser): Promise<AuthUser> => {
+    if (isAdminRole(me.appRole)) {
+      await authService.logout();
+      setUser(null);
+      setHasPersistedSession(false);
+      setError('Las cuentas de administrador solo están disponibles en la web.');
+      throw new Error('ADMIN_NOT_SUPPORTED');
+    }
+    if (!isMobileSupportedRole(me.appRole)) {
+      await authService.logout();
+      setUser(null);
+      setHasPersistedSession(false);
+      setError('Este tipo de cuenta no está disponible en la app móvil.');
+      throw new Error('ROLE_NOT_SUPPORTED');
+    }
+    if (!me.actor_id?.trim()) {
+      await authService.logout();
+      setUser(null);
+      setHasPersistedSession(false);
+      setError('Sesión sin actor operativo válido.');
+      throw new Error('ACTOR_NOT_SUPPORTED');
+    }
+    setUser(me);
+    setHasPersistedSession(true);
+    return me;
+  }, []);
+
   const login = useCallback(async (credentials: LoginCredentials): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
     try {
       const me = await authService.login(credentials);
-      if (isAdminRole(me.appRole)) {
-        await authService.logout();
-        setUser(null);
-        setHasPersistedSession(false);
-        setError('Las cuentas de administrador solo están disponibles en la web.');
-        throw new Error('ADMIN_NOT_SUPPORTED');
-      }
-      if (!isMobileSupportedRole(me.appRole)) {
-        await authService.logout();
-        setUser(null);
-        setHasPersistedSession(false);
-        setError('Este tipo de cuenta no está disponible en la app móvil.');
-        throw new Error('ROLE_NOT_SUPPORTED');
-      }
-      setUser(me);
-      setHasPersistedSession(true);
-      return me;
+      return await finalizeAuthenticatedUser(me);
     } catch (e) {
       if (
         e instanceof Error &&
-        (e.message === 'ADMIN_NOT_SUPPORTED' || e.message === 'ROLE_NOT_SUPPORTED')
+        (e.message === 'ADMIN_NOT_SUPPORTED' ||
+          e.message === 'ROLE_NOT_SUPPORTED' ||
+          e.message === 'ACTOR_NOT_SUPPORTED')
       ) {
         throw e;
       }
@@ -159,7 +172,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [finalizeAuthenticatedUser]);
+
+  const registerTransportista = useCallback(
+    async (payload: RegisterTransportistaPayload): Promise<AuthUser> => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const me = await authService.registerTransportista(payload);
+        return await finalizeAuthenticatedUser(me);
+      } catch (e) {
+        if (
+          e instanceof Error &&
+          (e.message === 'ADMIN_NOT_SUPPORTED' ||
+            e.message === 'ROLE_NOT_SUPPORTED' ||
+            e.message === 'ACTOR_NOT_SUPPORTED')
+        ) {
+          throw e;
+        }
+        const message = isTransientNetworkError(e)
+          ? NETWORK_UNAVAILABLE_MESSAGE
+          : getApiErrorMessage(e, 'Error al crear la cuenta');
+        setError(message);
+        throw e;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [finalizeAuthenticatedUser],
+  );
 
   const logout = useCallback(async () => {
     logLogoutReason('user_logout');
@@ -184,10 +225,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: Boolean(user) || hasPersistedSession,
       error,
       login,
+      registerTransportista,
       logout,
       refreshSession,
     }),
-    [user, isLoading, hasPersistedSession, error, login, logout, refreshSession],
+    [user, isLoading, hasPersistedSession, error, login, registerTransportista, logout, refreshSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

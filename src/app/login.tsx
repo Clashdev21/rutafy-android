@@ -1,11 +1,10 @@
-import { router } from 'expo-router';
+import { type Href, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -14,7 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth/useAuth';
 import { RutafyLogo } from '@/components/brand/RutafyLogo';
-import { RutafyColors, RutafyRadius, RutafyShadow, RutafyTypography } from '@/constants/rutafyTheme';
+import { authScreenStyles as styles } from '@/constants/authScreenStyles';
+import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import { getHomeHrefForUser } from '@/utils/roles';
 
@@ -102,86 +102,17 @@ export default function LoginScreen() {
                 <Text style={styles.buttonLabel}>Entrar</Text>
               )}
             </Pressable>
+
+            <Pressable
+              style={styles.linkRow}
+              onPress={() => router.push('/register' as Href)}>
+              <Text style={styles.linkText}>
+                ¿No tienes cuenta? <Text style={styles.linkAction}>Crear cuenta</Text>
+              </Text>
+            </Pressable>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: RutafyColors.loginBackground,
-  },
-  safe: { flex: 1, justifyContent: 'center' },
-  inner: {
-    padding: Spacing.four,
-    gap: Spacing.four,
-    maxWidth: 440,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  hero: {
-    gap: Spacing.three,
-    alignItems: 'flex-start',
-  },
-  heroText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: RutafyColors.textSecondary,
-    fontFamily: RutafyTypography.fontFamily,
-  },
-  card: {
-    backgroundColor: RutafyColors.white,
-    borderRadius: RutafyRadius.card,
-    padding: Spacing.four,
-    gap: Spacing.three,
-    borderWidth: 1,
-    borderColor: RutafyColors.border,
-    ...RutafyShadow.card,
-  },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: RutafyColors.navy,
-    fontFamily: RutafyTypography.fontFamilyBold,
-  },
-  cardSubtitle: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-    marginBottom: Spacing.one,
-    fontFamily: RutafyTypography.fontFamily,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: RutafyColors.border,
-    borderRadius: RutafyRadius.button,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    fontSize: 16,
-    backgroundColor: RutafyColors.white,
-    color: RutafyColors.textPrimary,
-    fontFamily: RutafyTypography.fontFamily,
-  },
-  error: {
-    textAlign: 'center',
-    color: RutafyColors.danger,
-    fontSize: 14,
-    fontFamily: RutafyTypography.fontFamily,
-  },
-  button: {
-    backgroundColor: RutafyColors.brand,
-    borderRadius: RutafyRadius.button,
-    paddingVertical: Spacing.three,
-    alignItems: 'center',
-    marginTop: Spacing.one,
-  },
-  buttonDisabled: { opacity: 0.7 },
-  buttonLabel: {
-    color: RutafyColors.white,
-    fontWeight: '600',
-    fontSize: 16,
-    fontFamily: RutafyTypography.fontFamilySemiBold,
-  },
-});

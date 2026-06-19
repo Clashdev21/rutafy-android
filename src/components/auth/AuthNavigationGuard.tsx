@@ -1,7 +1,8 @@
-import { router, usePathname } from 'expo-router';
+import { router, usePathname, type Href } from 'expo-router';
 import { useEffect } from 'react';
 
 import { useAuth } from '@/auth/useAuth';
+import { isPublicOnboardingRoute } from '@/utils/authPublicRoutes';
 import { appRoleToMobileRole, getHomeHrefForUser } from '@/utils/roles';
 
 /**
@@ -14,15 +15,15 @@ export function AuthNavigationGuard() {
   useEffect(() => {
     if (isLoading) return;
 
-    const isLogin = pathname === '/login';
     const isIndex = pathname === '/' || pathname === '';
+    const onPublicOnboarding = isPublicOnboardingRoute(pathname);
     const onTransportista = pathname.startsWith('/transportista');
     const onMensajero = pathname.startsWith('/mensajero');
     const onCapturaLogistica = pathname.startsWith('/captura-logistica');
 
     if (!isAuthenticated) {
       if (onTransportista || onMensajero || onCapturaLogistica) {
-        router.replace('/login');
+        router.replace('/welcome' as Href);
       }
       return;
     }
@@ -30,7 +31,7 @@ export function AuthNavigationGuard() {
     const home = getHomeHrefForUser(user);
     const mobileRole = user ? appRoleToMobileRole(user.appRole) : null;
 
-    if (isAuthenticated && (isLogin || isIndex)) {
+    if (isAuthenticated && (isIndex || onPublicOnboarding)) {
       router.replace(home);
       return;
     }

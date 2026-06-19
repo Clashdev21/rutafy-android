@@ -1,0 +1,160 @@
+import { StyleSheet } from 'react-native';
+
+import { RutafyColors, RutafyRadius, RutafyShadow, RutafyTypography } from '@/constants/rutafyTheme';
+import { Spacing } from '@/constants/theme';
+
+export const authScreenStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: RutafyColors.loginBackground,
+  },
+  safe: { flex: 1, justifyContent: 'center' },
+  safeScroll: { flex: 1 },
+  inner: {
+    padding: Spacing.four,
+    gap: Spacing.four,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  hero: {
+    gap: Spacing.three,
+    alignItems: 'flex-start',
+  },
+  heroCenter: {
+    gap: Spacing.three,
+    alignItems: 'center',
+  },
+  heroText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: RutafyColors.textSecondary,
+    fontFamily: RutafyTypography.fontFamily,
+    textAlign: 'center',
+  },
+  tagline: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: RutafyColors.textSecondary,
+    fontFamily: RutafyTypography.fontFamily,
+    textAlign: 'center',
+  },
+  card: {
+    backgroundColor: RutafyColors.white,
+    borderRadius: RutafyRadius.card,
+    padding: Spacing.four,
+    gap: Spacing.three,
+    borderWidth: 1,
+    borderColor: RutafyColors.border,
+    ...RutafyShadow.card,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: RutafyColors.navy,
+    fontFamily: RutafyTypography.fontFamilyBold,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    color: RutafyColors.textSecondary,
+    marginBottom: Spacing.one,
+    fontFamily: RutafyTypography.fontFamily,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: RutafyColors.border,
+    borderRadius: RutafyRadius.button,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    fontSize: 16,
+    backgroundColor: RutafyColors.white,
+    color: RutafyColors.textPrimary,
+    fontFamily: RutafyTypography.fontFamily,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: RutafyColors.navy,
+    fontFamily: RutafyTypography.fontFamilySemiBold,
+    marginBottom: -Spacing.one,
+  },
+  error: {
+    textAlign: 'center',
+    color: RutafyColors.danger,
+    fontSize: 14,
+    fontFamily: RutafyTypography.fontFamily,
+  },
+  button: {
+    backgroundColor: RutafyColors.brand,
+    borderRadius: RutafyRadius.button,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+    marginTop: Spacing.one,
+  },
+  buttonOutline: {
+    backgroundColor: RutafyColors.white,
+    borderWidth: 1,
+    borderColor: RutafyColors.border,
+    borderRadius: RutafyRadius.button,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+  },
+  buttonDisabled: { opacity: 0.7 },
+  buttonLabel: {
+    color: RutafyColors.white,
+    fontWeight: '600',
+    fontSize: 16,
+    fontFamily: RutafyTypography.fontFamilySemiBold,
+  },
+  buttonLabelOutline: {
+    color: RutafyColors.navy,
+    fontWeight: '600',
+    fontSize: 16,
+    fontFamily: RutafyTypography.fontFamilySemiBold,
+  },
+  linkRow: {
+    alignItems: 'center',
+    marginTop: Spacing.two,
+  },
+  linkText: {
+    fontSize: 14,
+    color: RutafyColors.textSecondary,
+    fontFamily: RutafyTypography.fontFamily,
+  },
+  linkAction: {
+    color: RutafyColors.brand,
+    fontWeight: '600',
+    fontFamily: RutafyTypography.fontFamilySemiBold,
+  },
+  roleCard: {
+    backgroundColor: RutafyColors.white,
+    borderRadius: RutafyRadius.card,
+    padding: Spacing.four,
+    borderWidth: 1,
+    borderColor: RutafyColors.border,
+    gap: Spacing.one,
+    ...RutafyShadow.card,
+  },
+  roleTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: RutafyColors.navy,
+    fontFamily: RutafyTypography.fontFamilyBold,
+  },
+  roleDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: RutafyColors.textSecondary,
+    fontFamily: RutafyTypography.fontFamily,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: Spacing.one,
+  },
+  backLabel: {
+    fontSize: 14,
+    color: RutafyColors.brand,
+    fontWeight: '600',
+    fontFamily: RutafyTypography.fontFamilySemiBold,
+  },
+});

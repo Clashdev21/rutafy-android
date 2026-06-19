@@ -4,7 +4,12 @@ import { apiClient } from '@/api/client';
 import { AUTH_ENDPOINTS } from '@/api/endpoints';
 import { tokenStorage } from '@/auth/tokenStorage';
 import { API_BASE_URL } from '@/config/env';
-import type { AuthUser, LoginCredentials, TokenPairResponse } from '@/types/auth';
+import type {
+  AuthUser,
+  LoginCredentials,
+  RegisterTransportistaPayload,
+  TokenPairResponse,
+} from '@/types/auth';
 import { normalizeAuthUser } from '@/utils/normalizeAuthUser';
 
 function pickAccessToken(data: TokenPairResponse): string | null {
@@ -17,7 +22,7 @@ function pickRefreshToken(data: TokenPairResponse): string | null {
   return typeof token === 'string' && token.trim() ? token.trim() : null;
 }
 
-async function loginErrorMessage(response: Response): Promise<string> {
+async function authErrorMessage(response: Response): Promise<string> {
   const fallback = `Error ${response.status}`;
   try {
     const data = (await response.json()) as {
@@ -49,7 +54,7 @@ export async function login(credentials: LoginCredentials): Promise<AuthUser> {
     });
 
     if (!response.ok) {
-      throw new Error(await loginErrorMessage(response));
+      throw new Error(await authErrorMessage(response));
     }
 
     const data = (await response.json()) as TokenPairResponse;
@@ -83,6 +88,61 @@ export async function login(credentials: LoginCredentials): Promise<AuthUser> {
     }
     throw error;
   }
+}
+
+export async function registerTransportista(
+  payload: RegisterTransportistaPayload,
+): Promise<AuthUser> {
+  const registerUrl = `${API_BASE_URL}${AUTH_ENDPOINTS.registerTransportista}`;
+
+  const body: Record<string, string> = {
+    name: payload.name.trim(),
+    phone: payload.phone.trim(),
+    password: payload.password,
+    company_name: payload.company_name.trim(),
+    doc_number: payload.doc_number.trim(),
+  };
+
+  const email = payload.email?.trim();
+  if (email) body.email = email;
+  const plate = payload.plate?.trim();
+  if (plate) body.plate = plate;
+  const vehicleType = payload.vehicle_type?.trim();
+  if (vehicleType) body.vehicle_type = vehicleType;
+  const vehicleReference = payload.vehicle_reference?.trim();
+  if (vehicleReference) body.vehicle_reference = vehicleReference;
+
+  const response = await fetch(registerUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      throw new Error(
+        'Este teléfono ya está registrado. Inicia sesión o usa otro número.',
+      );
+    }
+    throw new Error(await authErrorMessage(response));
+  }
+
+  const data = (await response.json()) as TokenPairResponse;
+  const access = pickAccessToken(data);
+  if (!access) {
+    throw new Error('Respuesta de registro sin access_token');
+  }
+
+  await tokenStorage.setAccessToken(access);
+  const refresh = pickRefreshToken(data);
+  if (refresh) {
+    await tokenStorage.setRefreshToken(refresh);
+  }
+
+  return fetchCurrentUser();
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser> {

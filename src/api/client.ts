@@ -44,9 +44,11 @@ function isPublicAuthRoute(config: InternalAxiosRequestConfig): boolean {
   const url = config.url ?? '';
   return (
     url.includes(AUTH_ENDPOINTS.login) ||
+    url.includes(AUTH_ENDPOINTS.registerTransportista) ||
     url.includes(AUTH_ENDPOINTS.refresh) ||
     url.includes(AUTH_ENDPOINTS.logout) ||
     path.includes(AUTH_ENDPOINTS.login) ||
+    path.includes(AUTH_ENDPOINTS.registerTransportista) ||
     path.includes(AUTH_ENDPOINTS.refresh) ||
     path.includes(AUTH_ENDPOINTS.logout)
   );

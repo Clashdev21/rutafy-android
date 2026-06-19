@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect, type Href } from 'expo-router';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
@@ -21,7 +21,7 @@ export default function IndexScreen() {
   }
 
   if (!isAuthenticated) {
-    return <Redirect href="/login" />;
+    return <Redirect href={'/welcome' as Href} />;
   }
 
   return <Redirect href={getHomeHrefForUser(user)} />;

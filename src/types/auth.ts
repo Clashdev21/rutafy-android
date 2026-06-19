@@ -21,6 +21,19 @@ export type LoginCredentials = {
   password: string;
 };
 
+/** Payload alineado con POST /v1/auth/register-transportista (Rutafy Web). */
+export type RegisterTransportistaPayload = {
+  name: string;
+  phone: string;
+  password: string;
+  company_name: string;
+  doc_number: string;
+  email?: string;
+  plate?: string;
+  vehicle_type?: string;
+  vehicle_reference?: string;
+};
+
 export type TokenPairResponse = {
   access_token?: string;
   accessToken?: string;
