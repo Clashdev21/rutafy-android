@@ -1,56 +1,70 @@
-# Welcome to your Expo app 👋
+# Rutafy Android
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Aplicación móvil operativa de **Rutafy** para mensajeros y transportistas en el corredor logístico portuario.
 
-## Get started
+**Stack:** Expo SDK 56 · React Native · Expo Router · SecureStore · Expo Notifications
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## Documentación
 
-2. Start the app
+La documentación técnica oficial está en **[`docs/`](./docs/README.md)**:
 
-   ```bash
-   npx expo start
-   ```
+| Guía | Descripción |
+|------|-------------|
+| [Onboarding](./docs/onboarding.md) | Welcome, login, registro, roles, AuthProvider |
+| [Tracking GPS](./docs/tracking.md) | Sesiones, background location, captura logística |
+| [Builds (Expo / EAS)](./docs/builds.md) | Validaciones, preview, production |
+| [Inicio rápido](./docs/getting-started.md) | Setup local y primer run |
+| [Arquitectura](./docs/architecture.md) | Capas, carpetas, patrones |
+| [Auth y navegación](./docs/auth-navigation.md) | Onboarding, sesión, guards |
+| [Módulos operativos](./docs/operational-modules.md) | Mensajero, transportista, captura |
+| [GPS y tracking](./docs/gps-tracking.md) | Background location, captura logística |
+| [Push notifications](./docs/push-notifications.md) | Registro device, listeners |
+| [Integración API](./docs/api-integration.md) | Endpoints y cliente HTTP |
+| [Builds y mantenimiento](./docs/builds-maintenance.md) | EAS, permisos, releases |
+| [Seguridad](./docs/security-conventions.md) | Secretos, logs, convenciones |
 
-In the output, you'll find options to open the app in a
+---
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Inicio rápido
 
 ```bash
-npm run reset-project
+npm install
+cp .env.example .env.local   # ajustar EXPO_PUBLIC_API_URL si aplica
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Para GPS y push reales, usar **development build** en dispositivo físico:
 
-### Other setup steps
+```bash
+npx expo run:android
+# o
+eas build --profile development --platform android
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+---
 
-## Learn more
+## Roles soportados
 
-To learn more about developing your project with Expo, look at the following resources:
+| Rol | Ruta home |
+|-----|-----------|
+| Mensajero | `/mensajero` |
+| Transportista | `/transportista` |
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Administrador: solo web, no soportado en app móvil.
 
-## Join the community
+---
 
-Join our community of developers creating universal apps.
+## Verificación
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npx tsc --noEmit
+```
+
+---
+
+## Recursos Expo
+
+- [Expo SDK 56 docs](https://docs.expo.dev/versions/v56.0.0/)
+- [Expo Router](https://docs.expo.dev/router/introduction/)
