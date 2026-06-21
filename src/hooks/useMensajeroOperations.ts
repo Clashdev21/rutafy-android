@@ -5,9 +5,17 @@ import { syncBackgroundTracking } from '@/services/backgroundLocationService';
 import { useMessengerLocationHeartbeat } from '@/hooks/useMessengerLocationHeartbeat';
 import { usePolling } from '@/hooks/usePolling';
 import * as mensajeroService from '@/services/mensajeroService';
+import {
+  consumePendingDispatchOfferIntent,
+  isDispatchOfferIntentExpired,
+  peekPendingDispatchOfferIntent,
+  subscribePushIntentListener,
+  type DispatchOfferIntent,
+} from '@/services/pushNavigationIntent';
 import type { Service } from '@/types/service';
 import { getApiErrorMessage } from '@/utils/errors';
 import { isValidUuid } from '@/utils/isValidUuid';
+import { reorderOffersForIntent } from '@/utils/reorderOffersForIntent';
 import {
   isMensajeroOperationalActive,
   pickMensajeroActiveService,
@@ -21,12 +29,15 @@ export type OffersRefreshSource =
   | 'pullToRefresh'
   | 'startService'
   | 'closeSuccess'
-  | 'manual';
+  | 'manual'
+  | 'push';
 
 export type RefreshOffersOptions = {
   silent?: boolean;
   forceOnline?: boolean;
   source: OffersRefreshSource;
+  prioritizeOfferId?: string;
+  prioritizeServiceId?: string;
 };
 
 export type RefreshAllOptions = {
@@ -52,9 +63,12 @@ export function useMensajeroOperations(
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [claimingServiceId, setClaimingServiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pushOfferActive, setPushOfferActive] = useState(false);
+  const [pushOfferNotice, setPushOfferNotice] = useState<string | null>(null);
 
   const refreshMyInFlightRef = useRef(false);
   const refreshOffersInFlightRef = useRef(false);
+  const pushIntentInFlightRef = useRef(false);
 
   useEffect(() => {
     if (actorId && isValidUuid(actorId)) {
@@ -111,12 +125,13 @@ export function useMensajeroOperations(
   const firstOffer = availableServices[0] ?? null;
 
   const uiState = useMemo(() => {
-    if (!effectiveIsOnline) return 'OFFLINE' as const;
     if (activeService?.status === 'STARTED') return 'IN_SERVICE' as const;
     if (activeService?.status === 'CLAIMED') return 'ASSIGNED' as const;
+    if ((effectiveIsOnline || pushOfferActive) && firstOffer) return 'OFFER' as const;
+    if (!effectiveIsOnline) return 'OFFLINE' as const;
     if (firstOffer) return 'OFFER' as const;
     return 'AVAILABLE' as const;
-  }, [effectiveIsOnline, activeService, firstOffer]);
+  }, [effectiveIsOnline, activeService, firstOffer, pushOfferActive]);
 
   const pollConfig = useMemo(() => getMensajeroPollConfig(uiState), [uiState]);
 
@@ -135,8 +150,10 @@ export function useMensajeroOperations(
         if (__DEV__) {
           console.log('[offers-refresh-skip-offline]', logContext);
         }
-        setAvailableServices([]);
-        setOfferIdByServiceId({});
+        if (!forceOnline) {
+          setAvailableServices([]);
+          setOfferIdByServiceId({});
+        }
         return;
       }
 
@@ -163,8 +180,29 @@ export function useMensajeroOperations(
       try {
         const { services, offerIdByServiceId: map } =
           await mensajeroService.fetchActiveOffers(effectiveActorId);
-        setAvailableServices(services);
-        setOfferIdByServiceId(map);
+
+        const prioritizeOfferId = options.prioritizeOfferId?.trim() ?? '';
+        const prioritizeServiceId = options.prioritizeServiceId?.trim() ?? '';
+        if (prioritizeOfferId || prioritizeServiceId) {
+          const reordered = reorderOffersForIntent(
+            services,
+            map,
+            prioritizeOfferId,
+            prioritizeServiceId,
+          );
+          setAvailableServices(reordered.services);
+          setOfferIdByServiceId(reordered.offerIdByServiceId);
+          if (reordered.matched) {
+            setPushOfferActive(true);
+            setPushOfferNotice(null);
+          } else {
+            setPushOfferActive(false);
+            setPushOfferNotice('La oferta ya no está disponible o expiró.');
+          }
+        } else {
+          setAvailableServices(services);
+          setOfferIdByServiceId(map);
+        }
       } catch (e) {
         setError(getApiErrorMessage(e, 'No se pudieron cargar las ofertas'));
       } finally {
@@ -270,6 +308,8 @@ export function useMensajeroOperations(
         });
         await refreshMyServices();
         await refreshOffers({ source: 'acceptOffer' });
+        setPushOfferActive(false);
+        setPushOfferNotice(null);
         setError(null);
       } catch (e) {
         const msg = getApiErrorMessage(e, 'No se pudo aceptar la oferta');
@@ -286,6 +326,8 @@ export function useMensajeroOperations(
   );
 
   const omitFirstOffer = useCallback(() => {
+    setPushOfferActive(false);
+    setPushOfferNotice(null);
     setAvailableServices((prev) => {
       if (prev.length === 0) return prev;
       const omittedId = prev[0].service_id;
@@ -360,6 +402,49 @@ export function useMensajeroOperations(
     [myServices],
   );
 
+  const processPushDispatchIntent = useCallback(async () => {
+    if (!canOperate || pushIntentInFlightRef.current) return;
+
+    const pending = peekPendingDispatchOfferIntent();
+    if (!pending) return;
+
+    pushIntentInFlightRef.current = true;
+    const intent: DispatchOfferIntent | null = consumePendingDispatchOfferIntent();
+    if (!intent) {
+      pushIntentInFlightRef.current = false;
+      return;
+    }
+
+    if (isDispatchOfferIntentExpired(intent)) {
+      setPushOfferActive(false);
+      setPushOfferNotice('La oferta ya no está disponible o expiró.');
+      pushIntentInFlightRef.current = false;
+      return;
+    }
+
+    if (__DEV__) {
+      console.log('[push-intent-process]', { source: 'mensajero' });
+    }
+
+    try {
+      await refreshOffers({
+        silent: true,
+        forceOnline: true,
+        source: 'push',
+        prioritizeOfferId: intent.offerId,
+        prioritizeServiceId: intent.serviceId,
+      });
+    } finally {
+      pushIntentInFlightRef.current = false;
+    }
+  }, [canOperate, refreshOffers]);
+
+  useEffect(() => {
+    return subscribePushIntentListener(() => {
+      void processPushDispatchIntent();
+    });
+  }, [processPushDispatchIntent]);
+
   return {
     isOnline,
     availabilitySyncing,
@@ -372,6 +457,7 @@ export function useMensajeroOperations(
     loadingOffers,
     claimingServiceId,
     error,
+    pushOfferNotice,
     canOperate,
     gpsStatus: locationHeartbeat.gpsStatus,
     hasLocationFix: locationHeartbeat.hasLocationFix,
@@ -382,6 +468,7 @@ export function useMensajeroOperations(
     refreshAll,
     refreshMyServices,
     refreshOffers,
+    processPushDispatchIntent,
     getServiceById,
   };
 }

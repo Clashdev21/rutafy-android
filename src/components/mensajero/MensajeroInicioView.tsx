@@ -21,6 +21,7 @@ export function MensajeroInicioView() {
     claimingServiceId,
     availabilitySyncing,
     error,
+    pushOfferNotice,
     canOperate,
     gpsStatus,
     hasLocationFix,
@@ -43,6 +44,7 @@ export function MensajeroInicioView() {
   return (
     <View style={styles.wrap}>
       {!canOperate ? <Banner message="La sesión no tiene actor_id válido para operar." /> : null}
+      {pushOfferNotice ? <Banner message={pushOfferNotice} variant="warn" /> : null}
       {error ? <Banner message={error} variant="error" /> : null}
 
       {uiState === 'OFFLINE' ? (

@@ -27,6 +27,7 @@ export type PushNotificationData = {
   screen?: string;
   service_id?: string;
   offer_id?: string;
+  expires_at?: string;
   [key: string]: unknown;
 };
 

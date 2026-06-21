@@ -1,6 +1,6 @@
 # Push notifications
 
-Documentación del subsistema de notificaciones push en Rutafy Android (Sprint 1B + preparación 1C).
+Documentación del subsistema de notificaciones push en Rutafy Android (Sprint 1B + 1D).
 
 Stack: **expo-notifications** · **expo-constants** · **expo-device** · **SecureStore**
 
@@ -20,8 +20,8 @@ Relacionado: [Autenticación](./auth-navigation.md) · [Integración API](./api-
 | Listener tap / respuesta | Implementado |
 | Cold start (app abierta desde notificación) | Implementado |
 | Background handler custom | No (OS + Expo handler) |
-| `dispatch_offer` lógica de negocio | **Pendiente Sprint 1C** |
-| Navegación por `data.screen` | Implementado (genérico) |
+| `dispatch_offer` lógica de negocio | **Implementado Sprint 1D** |
+| Navegación por `data.screen` | Implementado (genérico + cola post-auth) |
 
 Los fallos de push **no bloquean** login, logout ni operación principal.
 
@@ -345,7 +345,7 @@ Notifications.getLastNotificationResponseAsync().then((response) => {
 
 Log: `[push-response]` → si hay `screen`, `[push-navigate]`.
 
-**Orden con auth:** el bootstrap monta dentro de `AuthProvider`. Si `data.screen` requiere sesión (ej. `/mensajero`), el guard de auth puede redirigir a welcome si aún no hay token hidratado. Sprint 1C puede necesitar cola de deep link post-auth.
+**Orden con auth (Sprint 1D):** el bootstrap encola `router.push` hasta `!isLoading`. Si no hay sesión mensajero, descarta intent y no navega a rutas protegidas.
 
 ---
 
@@ -359,6 +359,7 @@ Tipo TypeScript: `PushNotificationData` en `notificationService.ts`.
   screen?: string;
   service_id?: string;
   offer_id?: string;
+  expires_at?: string;
 }
 ```
 
@@ -392,64 +393,76 @@ Sirve para verificar registro de device, FCM y navegación básica sin lógica d
 
 ## Tipo: `dispatch_offer`
 
-Notificación operativa: **nueva oferta de servicio** para mensajero (Sprint backend 1A desplegado; handler app **1C pendiente**).
+Notificación operativa: **nueva oferta de servicio** para mensajero.
 
-### Payload esperado (contrato preparado)
+### Payload esperado
 
 ```json
 {
   "type": "dispatch_offer",
   "service_id": "00000000-0000-4000-8000-000000000001",
   "offer_id": "00000000-0000-4000-8000-000000000002",
-  "screen": "/mensajero"
+  "screen": "/mensajero",
+  "expires_at": "2026-06-07T12:00:00.000Z"
 }
 ```
 
 | Campo | Uso |
 |-------|-----|
-| `type` | Discriminador; hoy solo se loguea |
+| `type` | Discriminador `dispatch_offer` |
 | `service_id` | ID servicio en backend |
-| `offer_id` | ID oferta para accept/reject |
-| `screen` | Ruta Expo Router destino |
+| `offer_id` | ID oferta para accept + priorización en UI |
+| `screen` | Ruta destino (normalizada a `/mensajero` si falta o es inválida) |
+| `expires_at` | ISO8601; validación local antes del refresh |
 
-### Qué hace la app hoy (Sprint 1B)
-
-```typescript
-handleNotificationResponse(data) {
-  logPush('[push-response]', { type, screen, service_id, offer_id });
-  navigateFromPushData(data); // solo si screen presente
-}
-```
-
-Es decir:
-
-- **Sí:** log de metadatos + navegación genérica a `screen`.
-- **No:** refresh de ofertas en `useMensajeroOperations`.
-- **No:** aceptar/rechazar oferta automáticamente.
-- **No:** pantalla dedicada `/mensajero/ofertas` (ruta no definida; usar `/mensajero`).
-
-### Qué debe hacer Sprint 1C (diseño objetivo)
+### Comportamiento Sprint 1D (tap / cold start)
 
 ```mermaid
-flowchart LR
-  PUSH[dispatch_offer recibida] --> TAP{Usuario interactúa}
-  TAP -->|Foreground| REFRESH[refreshOffers silent]
-  TAP -->|Tap| NAV[Navegar a screen]
-  NAV --> REFRESH
-  REFRESH --> UI[Mostrar oferta en Inicio]
+sequenceDiagram
+  participant Hook as usePushNotifications
+  participant Intent as pushNavigationIntent
+  participant Auth as AuthProvider
+  participant Ops as useMensajeroOperations
+  participant UI as MensajeroInicioView
+
+  Hook->>Intent: setPendingDispatchOfferIntent
+  Hook->>Auth: cola router.push(/mensajero) post-auth
+  Auth->>Ops: mount + focus tab Inicio
+  Ops->>Intent: consumePendingDispatchOfferIntent
+  Ops->>Ops: refreshOffers forceOnline source push
+  Ops->>Ops: reordenar por offer_id / service_id
+  Ops->>UI: uiState OFFER o banner expirada
 ```
 
-Tareas candidatas 1C:
+**Al tocar la notificación:**
 
-1. Handler específico `if (data.type === 'dispatch_offer')`.
-2. Llamar `refreshOffers({ source: 'push', silent: true })` en contexto mensajero.
-3. Opcional: pasar `offer_id` como query param para highlight.
-4. Mapear `/mensajero/ofertas` → tab Inicio si se estandariza en backend.
-5. Respetar preferencias `GET /notifications/preferences`.
+1. Guarda intent en memoria (`pushNavigationIntent.ts`).
+2. Encola navegación a `/mensajero` cuando `!isLoading` y usuario autenticado mensajero.
+3. Tab **Inicio** consume el intent al enfocarse (`useFocusEffect`).
+4. `refreshOffers({ forceOnline: true, source: 'push' })` complementa el polling (no lo reemplaza).
+5. Prioriza la oferta del push en `availableServices[0]`.
+6. Si la app está OFFLINE localmente, muestra `MensajeroOfferScreen` mientras el intent push esté activo.
+7. Si la oferta no existe o `expires_at` ya pasó → banner “La oferta ya no está disponible o expiró.”.
+
+**No hace:**
+
+- Auto-aceptar ofertas.
+- Crear ruta `/mensajero/oferta/[offerId]`.
+- Refresh en foreground sin tap del usuario.
+
+### Archivos involucrados
+
+| Archivo | Rol |
+|---------|-----|
+| `src/services/pushNavigationIntent.ts` | Intent en memoria |
+| `src/hooks/usePushNotifications.ts` | Handler + cola post-auth |
+| `src/hooks/useMensajeroOperations.ts` | Refresh push + priorización + override UI |
+| `src/app/mensajero/(tabs)/index.tsx` | Consume intent al focus |
+| `src/utils/reorderOffersForIntent.ts` | Reordenar lista de ofertas |
 
 ### Relación con polling actual
 
-Hoy el mensajero obtiene ofertas vía **polling** en `useMensajeroOperations`. Push `dispatch_offer` será **complemento** para latencia, no reemplazo inmediato del poller hasta validar confiabilidad FCM en campo.
+El mensajero sigue obteniendo ofertas vía **polling** en `useMensajeroOperations`. Push `dispatch_offer` es **complemento** para latencia al abrir la app desde la notificación.
 
 ---
 
@@ -533,8 +546,8 @@ Push real en producción requiere credenciales Firebase configuradas en Expo/EAS
 | Limitación | Notas |
 |------------|-------|
 | Emulador sin token real | Usar device físico |
-| `dispatch_offer` sin negocio | Solo navegación genérica |
-| Deep link antes de auth | Cold start puede llegar antes de hidratar sesión |
+| `dispatch_offer` sin oferta activa | Banner informativo; polling continúa |
+| Deep link antes de auth | Cola post-auth en `usePushNotifications`; sin sesión → welcome |
 | Session expired | No unregister push |
 | `/mensajero/ofertas` | Ruta inexistente; backend debe usar `/mensajero` o agregar ruta |
 | Preferences API | Sin UI sync aún |
