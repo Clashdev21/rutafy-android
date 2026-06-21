@@ -44,3 +44,9 @@ export const TRACKING_SESSION_ENDPOINTS = {
   end: (sessionId: string) =>
     `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/end`,
 } as const;
+
+export const NOTIFICATION_ENDPOINTS = {
+  preferences: '/v1/notifications/preferences',
+  registerDevice: '/v1/notifications/devices/register',
+  unregisterDevice: '/v1/notifications/devices/unregister',
+} as const;

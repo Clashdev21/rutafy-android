@@ -6,6 +6,10 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext';
 import { sessionEvents } from '@/auth/sessionEvents';
 import { tokenStorage } from '@/auth/tokenStorage';
 import * as authService from '@/services/authService';
+import {
+  registerDevicePushTokenAsync,
+  unregisterDevicePushTokenAsync,
+} from '@/services/notificationService';
 import type { AuthUser, LoginCredentials, RegisterTransportistaPayload } from '@/types/auth';
 import { getApiErrorMessage } from '@/utils/errors';
 import {
@@ -23,6 +27,10 @@ function logLogoutReason(reason: string, detail?: unknown): void {
   if (__DEV__) {
     console.log('[auth-logout-reason]', { reason, detail });
   }
+}
+
+function schedulePushRegistration(): void {
+  void registerDevicePushTokenAsync();
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
@@ -72,6 +80,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       setUser(me);
       setError(null);
+      schedulePushRegistration();
     } catch (e) {
       if (isTransientNetworkError(e)) {
         if (__DEV__) {
@@ -146,6 +155,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     setUser(me);
     setHasPersistedSession(true);
+    schedulePushRegistration();
     return me;
   }, []);
 
@@ -206,6 +216,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logLogoutReason('user_logout');
     setIsLoading(true);
     try {
+      await unregisterDevicePushTokenAsync();
       await authService.logout();
     } catch {
       await tokenStorage.clearAll();

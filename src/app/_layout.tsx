@@ -13,6 +13,7 @@ import { useColorScheme } from 'react-native';
 
 import { AuthProvider } from '@/auth/AuthProvider';
 import { AuthNavigationGuard } from '@/components/auth/AuthNavigationGuard';
+import { PushNotificationsBootstrap } from '@/components/notifications/PushNotificationsBootstrap';
 import { RutafyBrandPalette } from '@/constants/rutafyTheme';
 import '@/services/backgroundLocationTask';
 import '@/services/operatorTrackingTask';
@@ -64,6 +65,7 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <ThemeProvider value={colorScheme === 'dark' ? RutafyDarkTheme : RutafyLightTheme}>
+        <PushNotificationsBootstrap />
         <AuthNavigationGuard />
         <Stack screenOptions={{ headerShown: false }} />
       </ThemeProvider>
