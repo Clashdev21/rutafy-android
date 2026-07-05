@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
-import { RutafyButton } from '@/components/rutafy/RutafyButton';
-import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
-import { Spacing } from '@/constants/theme';
+import { AppButton, AppCard, AppIcon, AppText } from '@/components/ui';
+import { colors } from '@/theme/colors';
+import { radius } from '@/theme/radius';
+import { spacing } from '@/theme/spacing';
 import * as mensajeroService from '@/services/mensajeroService';
 import type { Service } from '@/types/service';
 import { getApiErrorMessage } from '@/utils/errors';
@@ -18,15 +19,6 @@ type Props = {
   locationActive: boolean;
   onStartSuccess: () => void | Promise<void>;
 };
-
-function RouteBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.routeBlock}>
-      <Text style={styles.routeLabel}>{label}</Text>
-      <Text style={styles.routeValue}>{value}</Text>
-    </View>
-  );
-}
 
 export function MensajeroAssignedScreen({
   service,
@@ -58,32 +50,40 @@ export function MensajeroAssignedScreen({
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Servicio asignado</Text>
-          <Text style={styles.headerSubtitle}>Confirma la ruta antes de salir a recoger</Text>
+      <View style={styles.mapArea}>
+        <View style={styles.mapPlaceholder}>
+          <AppIcon name="map" size={40} color={colors.primary} />
+          <AppText variant="caption" style={styles.mapHint}>
+            Vista de ruta — mapa en vivo próximamente
+          </AppText>
         </View>
-      </SafeAreaView>
-
-      <View style={styles.body}>
-        <View style={styles.codeCard}>
-          <Text style={styles.codeLabel}>Código RTF</Text>
-          <Text style={styles.codeValue}>{code}</Text>
-        </View>
-        <RouteBlock label="RECOGER EN" value={service.origin} />
-        <RouteBlock label="ENTREGAR EN" value={service.destination} />
-        <Text
-          style={[
-            styles.locationStatus,
-            locationActive ? styles.locationActive : styles.locationInactive,
-          ]}>
-          {locationLabel}
-        </Text>
       </View>
 
-      <SafeAreaView style={styles.footer} edges={['bottom', 'left', 'right']}>
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        <RutafyButton
+      <SafeAreaView style={styles.panel} edges={['bottom', 'left', 'right']}>
+        <View style={styles.panelHeader}>
+          <AppText variant="heading">Servicio asignado</AppText>
+          <AppText variant="caption">{code}</AppText>
+        </View>
+
+        <AppCard style={styles.routeCard}>
+          <RouteBlock label="RECOGER EN" value={service.origin} />
+          <RouteBlock label="ENTREGAR EN" value={service.destination} />
+        </AppCard>
+
+        <AppText
+          variant="caption"
+          color={locationActive ? colors.success : colors.danger}
+          style={styles.locationStatus}>
+          {locationLabel}
+        </AppText>
+
+        {error ? (
+          <AppText variant="caption" color={colors.danger} style={styles.errorText}>
+            {error}
+          </AppText>
+        ) : null}
+
+        <AppButton
           label={starting ? 'Iniciando…' : 'Iniciar servicio'}
           onPress={() => void handleStart()}
           disabled={controlsDisabled}
@@ -94,91 +94,45 @@ export function MensajeroAssignedScreen({
   );
 }
 
+function RouteBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.routeBlock}>
+      <AppText variant="overline">{label}</AppText>
+      <AppText variant="bodyMedium">{value}</AppText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
-  safe: {
-    borderBottomWidth: 1,
-    borderBottomColor: RutafyColors.border,
-    backgroundColor: RutafyColors.surface,
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
-    gap: Spacing.one,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: RutafyColors.navy,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-    lineHeight: 20,
-  },
-  body: {
+  container: { flex: 1, backgroundColor: colors.background },
+  mapArea: { flex: 7, backgroundColor: '#E2E8F0' },
+  mapPlaceholder: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.four,
-    gap: Spacing.four,
-  },
-  codeCard: {
-    backgroundColor: RutafyColors.surface,
-    borderRadius: RutafyRadius.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    margin: spacing.base,
+    borderRadius: radius.card,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: RutafyColors.border,
-    padding: Spacing.four,
-    gap: Spacing.one,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
   },
-  codeLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    color: RutafyColors.textSecondary,
-    textTransform: 'uppercase',
-  },
-  codeValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    fontFamily: 'monospace',
-    color: RutafyColors.navy,
-  },
-  routeBlock: { gap: Spacing.one },
-  routeLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    color: RutafyColors.textSecondary,
-    textTransform: 'uppercase',
-  },
-  routeValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: RutafyColors.textPrimary,
-    lineHeight: 22,
-  },
-  locationStatus: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  locationActive: {
-    color: RutafyColors.success,
-  },
-  locationInactive: {
-    color: RutafyColors.danger,
-  },
-  footer: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    gap: Spacing.two,
+  mapHint: { textAlign: 'center', paddingHorizontal: spacing.xl },
+  panel: {
+    flex: 3,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.bottomSheet,
+    borderTopRightRadius: radius.bottomSheet,
+    paddingHorizontal: spacing.base,
+    paddingTop: spacing.base,
+    gap: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: RutafyColors.border,
-    backgroundColor: RutafyColors.surface,
+    borderColor: colors.border,
   },
-  errorText: {
-    fontSize: 14,
-    color: RutafyColors.danger,
-    textAlign: 'center',
-  },
+  panelHeader: { gap: 2 },
+  routeCard: { gap: spacing.md },
+  routeBlock: { gap: 4 },
+  locationStatus: { textAlign: 'center' },
+  errorText: { textAlign: 'center' },
 });

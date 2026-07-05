@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 
 import { apiClient } from '@/api/client';
 import { NOTIFICATION_ENDPOINTS } from '@/api/endpoints';
+import { tokenStorage } from '@/auth/tokenStorage';
 import {
   clearStoredExpoPushToken,
   getOrCreateDeviceId,
@@ -31,6 +32,13 @@ export type PushNotificationData = {
   [key: string]: unknown;
 };
 
+export type RegisterDeviceOptions = {
+  source?: string;
+  actorId?: string | null;
+  actorType?: string | null;
+};
+
+let registerDeviceInFlight: Promise<void> | null = null;
 let handlerConfigured = false;
 
 function pushLog(tag: string, detail?: Record<string, unknown>): void {
@@ -141,35 +149,70 @@ async function buildRegisterPayload(
   };
 }
 
-export async function registerDevicePushTokenAsync(): Promise<void> {
-  try {
-    const granted = await requestPushPermissionsAsync();
-    if (!granted) {
-      return;
-    }
-
-    const expoPushToken = await getExpoPushTokenAsync();
-    if (!expoPushToken) {
-      return;
-    }
-
-    await saveExpoPushToken(expoPushToken);
-    const payload = await buildRegisterPayload(expoPushToken);
-
-    pushLog('[push-register-start]', {
-      device_id: payload.device_id,
-      platform: payload.platform,
-      environment: payload.environment,
-    });
-
-    await apiClient.post(NOTIFICATION_ENDPOINTS.registerDevice, payload);
-
-    pushLog('[push-register-ok]', { device_id: payload.device_id });
-  } catch (error) {
-    pushLog('[push-register-error]', {
-      message: error instanceof Error ? error.message : String(error),
-    });
+export async function registerDevicePushTokenAsync(
+  options: RegisterDeviceOptions = {},
+): Promise<void> {
+  if (registerDeviceInFlight) {
+    return registerDeviceInFlight;
   }
+
+  const { source, actorId = null, actorType = null } = options;
+
+  registerDeviceInFlight = (async () => {
+    try {
+      const granted = await requestPushPermissionsAsync();
+      if (!granted) {
+        return;
+      }
+
+      const expoPushToken = await getExpoPushTokenAsync();
+      if (!expoPushToken) {
+        return;
+      }
+
+      const accessToken = await tokenStorage.getAccessToken();
+      if (!accessToken) {
+        pushLog('[push-register-skip-no-session]', {
+          reason: 'no_token_at_post',
+          source: source ?? null,
+          hasAccessToken: false,
+          hasUser: null,
+          actorId,
+          actorType,
+        });
+        return;
+      }
+
+      await saveExpoPushToken(expoPushToken);
+      const payload = await buildRegisterPayload(expoPushToken);
+
+      pushLog('[push-register-start]', {
+        device_id: payload.device_id,
+        platform: payload.platform,
+        environment: payload.environment,
+        source: source ?? null,
+        hasAccessToken: true,
+        actorId,
+        actorType,
+      });
+
+      await apiClient.post(NOTIFICATION_ENDPOINTS.registerDevice, payload);
+
+      pushLog('[push-register-success]', {
+        device_id: payload.device_id,
+        source: source ?? null,
+      });
+    } catch (error) {
+      pushLog('[push-register-error]', {
+        message: error instanceof Error ? error.message : String(error),
+        source: source ?? null,
+      });
+    } finally {
+      registerDeviceInFlight = null;
+    }
+  })();
+
+  return registerDeviceInFlight;
 }
 
 export async function unregisterDevicePushTokenAsync(): Promise<void> {

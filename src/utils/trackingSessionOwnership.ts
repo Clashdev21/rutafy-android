@@ -56,6 +56,14 @@ export function isTrackingSessionForbiddenOrNotFound(error: unknown): boolean {
   return status === 403 || status === 404;
 }
 
+export async function cleanupLocalTrackingSession(reason: string): Promise<void> {
+  if (__DEV__) {
+    console.log('[tracking-cleanup-local]', { reason });
+  }
+  await stopOperatorTrackingAsync();
+  await trackingSessionStorage.clearActive();
+}
+
 export async function clearActiveTrackingSession(
   reason: 'owner_mismatch' | 'remote_inactive' | 'remote_forbidden',
 ): Promise<void> {
@@ -63,10 +71,24 @@ export async function clearActiveTrackingSession(
     console.log('[tracking-session-owner-mismatch]');
   }
 
-  await stopOperatorTrackingAsync();
-  await trackingSessionStorage.clearActive();
+  await cleanupLocalTrackingSession(reason);
 
   if (__DEV__) {
     console.log('[tracking-session-storage-cleared]', { reason });
   }
+}
+
+export function isTrackingSessionNotActiveError(error: unknown): boolean {
+  if (axios.isAxiosError(error)) {
+    if (error.response?.status !== 409) return false;
+    const data = error.response.data as { error?: string; code?: string; message?: string };
+    const token = [data?.error, data?.code, data?.message]
+      .filter((v): v is string => typeof v === 'string')
+      .join(' ');
+    return token.includes('session_not_active');
+  }
+  if (error instanceof Error) {
+    return error.message.includes('session_not_active');
+  }
+  return false;
 }

@@ -43,6 +43,8 @@ export const TRACKING_SESSION_ENDPOINTS = {
     `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/points/batch`,
   end: (sessionId: string) =>
     `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/end`,
+  cancel: (sessionId: string) =>
+    `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/cancel`,
 } as const;
 
 export const NOTIFICATION_ENDPOINTS = {

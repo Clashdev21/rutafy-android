@@ -1,68 +1,72 @@
-/** Identidad visual Rutafy — propuesta 4 (logística empresarial). */
+/**
+ * Identidad visual Rutafy — reexporta el sistema centralizado (Sprint UI 1B).
+ * Mantener imports existentes durante la migración gradual.
+ */
+import { colors as themeColors } from '@/theme/colors';
+import { radius as themeRadius } from '@/theme/radius';
+import { shadowStyles } from '@/theme/shadows';
+import { fontFamily, typography } from '@/theme/typography';
+
 export const RutafyBrandPalette = {
-  greenPrimary: '#16A34A',
-  greenAccent: '#86EFAC',
-  grayDark: '#1F2937',
-  backgroundLight: '#F8FAFC',
-  white: '#FFFFFF',
+  greenPrimary: themeColors.primary,
+  greenAccent: themeColors.primaryLight,
+  grayDark: themeColors.navyMuted,
+  backgroundLight: themeColors.background,
+  white: themeColors.white,
 } as const;
 
 export const RutafyColors = {
-  brand: RutafyBrandPalette.greenPrimary,
-  brandLight: RutafyBrandPalette.greenAccent,
-  brandDark: '#15803D',
-  navy: RutafyBrandPalette.grayDark,
-  navyDark: '#111827',
-  loginBackground: RutafyBrandPalette.backgroundLight,
-  textPrimary: '#0F172A',
-  textSecondary: '#64748B',
-  success: RutafyBrandPalette.greenPrimary,
-  warning: '#F59E0B',
-  danger: '#DC2626',
-  white: RutafyBrandPalette.white,
-  surface: RutafyBrandPalette.white,
-  surfaceMuted: RutafyBrandPalette.backgroundLight,
-  border: '#E2E8F0',
-  borderMuted: '#CBD5E1',
+  brand: themeColors.primary,
+  brandLight: themeColors.primaryLight,
+  brandDark: themeColors.primaryDark,
+  navy: themeColors.navyMuted,
+  navyDark: themeColors.navy,
+  loginBackground: themeColors.background,
+  textPrimary: themeColors.textPrimary,
+  textSecondary: themeColors.subtitle,
+  success: themeColors.success,
+  warning: themeColors.warning,
+  danger: themeColors.danger,
+  white: themeColors.white,
+  surface: themeColors.surface,
+  surfaceMuted: themeColors.surfaceMuted,
+  border: themeColors.border,
+  borderMuted: themeColors.borderMuted,
   heroGlass: 'rgba(255,255,255,0.12)',
   heroGlassBorder: 'rgba(255,255,255,0.15)',
   brandTint: 'rgba(22,163,74,0.1)',
   brandTintBorder: 'rgba(22,163,74,0.25)',
-  offerTimer: '#16A34A',
+  offerTimer: themeColors.primary,
 } as const;
 
 export const RutafyTypography = {
-  fontFamily: 'PlusJakartaSans_400Regular',
-  fontFamilyMedium: 'PlusJakartaSans_500Medium',
-  fontFamilySemiBold: 'PlusJakartaSans_600SemiBold',
-  fontFamilyBold: 'PlusJakartaSans_700Bold',
+  fontFamily: fontFamily.regular,
+  fontFamilyMedium: fontFamily.medium,
+  fontFamilySemiBold: fontFamily.semiBold,
+  fontFamilyBold: fontFamily.bold,
   webFallback: 'Plus Jakarta Sans, system-ui, sans-serif',
 } as const;
 
 export const RutafyRadius = {
-  card: 16,
-  button: 12,
-  pill: 999,
+  card: themeRadius.card,
+  button: themeRadius.button,
+  input: themeRadius.input,
+  bottomSheet: themeRadius.bottomSheet,
+  pill: themeRadius.pill,
 } as const;
 
 export const RutafyShadow = {
-  card: {
-    shadowColor: '#1F2937',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
+  card: shadowStyles.md,
 } as const;
 
 export const RutafyStackHeaderOptions = {
   headerStyle: { backgroundColor: RutafyColors.white },
   headerTintColor: RutafyColors.navy,
   headerTitleStyle: {
-    fontFamily: RutafyTypography.fontFamilySemiBold,
+    fontFamily: typography.heading.fontFamily,
     fontWeight: '600' as const,
     color: RutafyColors.navy,
-    fontSize: 17,
+    fontSize: typography.heading.fontSize,
   },
   headerShadowVisible: false,
   contentStyle: { backgroundColor: RutafyColors.surfaceMuted },

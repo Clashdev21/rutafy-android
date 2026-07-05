@@ -40,7 +40,7 @@ flowchart TB
   subgraph Auth["AuthProvider"]
     LOGIN[login / refreshSession]
     LOGOUT[logout]
-    LOGIN -->|fire-and-forget| REG[registerDevicePushTokenAsync]
+    LOGIN -->|post-session| REG[registerPushIfSessionReady]
     LOGOUT --> UNREG[unregisterDevicePushTokenAsync]
   end
 
@@ -185,15 +185,31 @@ API storage:
 
 *(preferences: definido en endpoints; sync UI pendiente Sprint 1C)*
 
-### Cuándo registrar
+### Cuándo registrar (Sprint 1E)
 
-`AuthProvider` llama `schedulePushRegistration()` → `registerDevicePushTokenAsync()` en:
+`AuthProvider` llama **`registerPushIfSessionReady(user, source)`** (`src/services/pushRegistration.ts`) solo tras sesión válida:
 
-- Login exitoso
-- Registro transportista exitoso
-- `refreshSession` con sesión válida
+| Evento | `source` |
+|--------|----------|
+| Login exitoso | `login` |
+| Registro transportista | `register_transportista` |
+| `refreshSession` con sesión válida | `restore_session` |
 
-Fire-and-forget: no `await` en navegación.
+**Guards obligatorios** antes de `POST /devices/register`:
+
+- `access_token` en `tokenStorage`
+- `user` con `actor_id` y `actor_type`
+- Re-verificación de `access_token` justo antes del POST (cierra race async permisos/Expo token)
+
+**Orden VPS esperado (login manual):**
+
+```
+POST /v1/auth/login                        200
+GET  /v1/auth/me                           200
+POST /v1/notifications/devices/register    200
+```
+
+Nunca `POST /devices/register` sin Bearer válido.
 
 ### Payload register (estructura)
 
@@ -469,15 +485,14 @@ El mensajero sigue obteniendo ofertas vía **polling** en `useMensajeroOperation
 ## Integración AuthProvider
 
 ```typescript
-function schedulePushRegistration(): void {
-  void registerDevicePushTokenAsync();
-}
+await registerPushIfSessionReady(me, 'login');
+// o 'restore_session' | 'register_transportista'
 ```
 
 | Evento | Push |
 |--------|------|
-| `finalizeAuthenticatedUser` | register |
-| `refreshSession` OK | register |
+| `finalizeAuthenticatedUser` | `registerPushIfSessionReady` (await) |
+| `refreshSession` OK | `registerPushIfSessionReady` (void, no bloquea UI) |
 | `logout` | unregister → logout API |
 
 Cambio de usuario en mismo device: nuevo login registra token otra vez (backend asocia device al user activo).
@@ -519,7 +534,9 @@ Push real en producción requiere credenciales Firebase configuradas en Expo/EAS
 | `[push-permission]` | Resultado permisos |
 | `[push-token]` | Token obtenido (prefijo) |
 | `[push-token-error]` | Fallo token |
-| `[push-register-start/ok/error]` | Registro backend |
+| `[push-register-skip-no-session]` | Sin sesión o sin token al POST |
+| `[push-register-session-ready]` | Guards OK, inicia registro |
+| `[push-register-start/success/error]` | Registro backend |
 | `[push-unregister-start/ok/error]` | Desregistro |
 | `[push-received-foreground]` | App visible, push llegó |
 | `[push-response]` | Tap o cold start |
@@ -560,7 +577,7 @@ Push real en producción requiere credenciales Firebase configuradas en Expo/EAS
 |--------|---------|
 | Nuevo tipo push | `PushNotificationData` + handler en `usePushNotifications` |
 | Campos register | `RegisterDevicePayload` + `buildRegisterPayload` |
-| Momento registro | `AuthProvider.schedulePushRegistration` |
+| Momento registro | `registerPushIfSessionReady` en AuthProvider |
 | Comportamiento foreground UI | `setupNotificationHandler` o `handleForegroundNotification` |
 | Deep link post-auth | Cola en guard o hook (1C) |
 

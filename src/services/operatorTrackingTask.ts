@@ -4,6 +4,7 @@ import * as TaskManager from 'expo-task-manager';
 import { TRACKING_SESSION_ENDPOINTS } from '@/api/endpoints';
 import { tokenStorage } from '@/auth/tokenStorage';
 import { API_BASE_URL } from '@/config/env';
+import { stopOperatorTrackingAsync } from '@/services/operatorTrackingService';
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
@@ -26,6 +27,31 @@ function shortSessionId(id: string): string {
 async function recordTaskDrop(reason: string): Promise<void> {
   console.log('[operator-bg-task-drop]', { reason });
   await operatorTrackingHealthStorage.recordDrop(reason);
+}
+
+function isSessionNotActiveResponse(
+  status: number,
+  parsed: Record<string, unknown> | null,
+  detail: string,
+): boolean {
+  if (status !== 409) return false;
+  const token = [
+    parsed?.error,
+    parsed?.code,
+    parsed?.message,
+    detail,
+  ]
+    .filter((v): v is string => typeof v === 'string')
+    .join(' ');
+  return token.includes('session_not_active');
+}
+
+async function cleanupClosedSessionLocally(reason: string): Promise<void> {
+  if (__DEV__) {
+    console.log('[tracking-cleanup-local]', { reason });
+  }
+  await stopOperatorTrackingAsync();
+  await trackingSessionStorage.clearActive();
 }
 
 async function postPointsBatch(sessionId: string, points: TrackingPointInput[]): Promise<number> {
@@ -63,6 +89,9 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
         : typeof parsed?.message === 'string'
           ? parsed.message
           : `HTTP ${response.status}`;
+    if (isSessionNotActiveResponse(response.status, parsed, detail)) {
+      throw new Error('session_not_active');
+    }
     throw new Error(String(response.status) === '401' ? '401' : detail);
   }
 
@@ -133,6 +162,11 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
       await operatorTrackingHealthStorage.recordBatchOk();
       console.log('[operator-bg-batch-ok]', { accepted });
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes('session_not_active')) {
+        await cleanupClosedSessionLocally('session_not_active_bg');
+        return;
+      }
       const errorCode = classifyOperatorBgBatchError(e);
       console.warn('[operator-bg-batch-error]', { errorCode, detail: e });
       await operatorTrackingHealthStorage.recordBatchError(errorCode);

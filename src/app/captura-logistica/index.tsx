@@ -1,24 +1,32 @@
 import { type Href, router } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RutafyButton } from '@/components/rutafy/RutafyButton';
-import { RutafyCard } from '@/components/rutafy/RutafyCard';
 import { OperatorTrackingHealthPanel } from '@/components/tracking/OperatorTrackingHealthPanel';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
+import { AppDialog } from '@/components/ui/AppDialog';
+import { AppText } from '@/components/ui/AppText';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import { useOperatorTrackingSession } from '@/hooks/useOperatorTrackingSession';
+import { colors } from '@/theme/colors';
+import { spacing } from '@/theme/spacing';
 import type { TrackingSessionPurpose } from '@/types/tracking';
-import { formatTrackingDuration } from '@/utils/trackingSessionFormat';
+import {
+  formatTimestamp,
+  formatTrackingDuration,
+  formatTrackingPurpose,
+  formatTrackingStatus,
+} from '@/utils/trackingSessionFormat';
 
 const PURPOSE_OPTIONS: { value: TrackingSessionPurpose; label: string }[] = [
   { value: 'operacion_interna', label: 'Operación interna' },
@@ -33,11 +41,11 @@ const CONSENT_TEXT =
 
 export default function CapturaLogisticaScreen() {
   const insets = useSafeAreaInsets();
+  const [cancelDialogVisible, setCancelDialogVisible] = useState(false);
   const {
     isActive,
     storedSession,
     shortSessionId,
-    remoteStatus,
     purpose,
     setPurpose,
     vehicleLabel,
@@ -48,12 +56,15 @@ export default function CapturaLogisticaScreen() {
     setConsentAccepted,
     loading,
     busy,
+    closingAction,
     error,
+    successMessage,
     pointsSent,
     lastPointAt,
     elapsedSeconds,
     startCapture,
     endCapture,
+    cancelCapture,
     healthRefreshKey,
   } = useOperatorTrackingSession();
 
@@ -65,6 +76,22 @@ export default function CapturaLogisticaScreen() {
     return 'Inactiva';
   }, [loading, isActive]);
 
+  const activePurposeLabel = storedSession
+    ? formatTrackingPurpose(storedSession.purpose)
+    : formatTrackingPurpose(purpose);
+
+  const handleEndCapture = async () => {
+    const endedId = await endCapture();
+    if (endedId) {
+      router.push(`/captura-logistica/${encodeURIComponent(endedId)}` as Href);
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    setCancelDialogVisible(false);
+    await cancelCapture();
+  };
+
   return (
     <ScrollView
       contentContainerStyle={[
@@ -72,28 +99,43 @@ export default function CapturaLogisticaScreen() {
         { paddingBottom: Math.max(insets.bottom, Spacing.four) + Spacing.four },
       ]}
       keyboardShouldPersistTaps="handled">
-      <RutafyCard style={styles.statusCard}>
-        <Text style={styles.statusTitle}>{statusLabel}</Text>
-        {isActive ? (
+      <AppCard style={styles.statusCard}>
+        <AppText variant="heading">{statusLabel}</AppText>
+        {isActive && storedSession ? (
           <>
-            <Text style={styles.statusLine}>Sesión: {shortSessionId}</Text>
-            <Text style={styles.statusLine}>
-              Estado remoto: {remoteStatus ?? 'active'}
-            </Text>
-            <Text style={styles.statusLine}>Tiempo: {formatTrackingDuration(elapsedSeconds)}</Text>
-            <Text style={styles.statusLine}>Puntos enviados: {pointsSent}</Text>
-            <Text style={styles.statusLine}>
+            <AppText variant="body">Sesión: {shortSessionId}</AppText>
+            <AppText variant="body">Propósito: {activePurposeLabel}</AppText>
+            <AppText variant="body">Vehículo: {storedSession.vehicleLabel}</AppText>
+            <AppText variant="body">
+              Inicio: {formatTimestamp(storedSession.startedAt)}
+            </AppText>
+            <AppText variant="body">Estado: {formatTrackingStatus('active')}</AppText>
+            <AppText variant="body">Tiempo: {formatTrackingDuration(elapsedSeconds)}</AppText>
+            <AppText variant="body">Puntos capturados: {pointsSent}</AppText>
+            <AppText variant="caption" color={colors.subtitle}>
               Último punto: {lastPointAt ? new Date(lastPointAt).toLocaleTimeString() : '—'}
-            </Text>
+            </AppText>
           </>
         ) : (
-          <Text style={styles.statusHint}>
+          <AppText variant="body" color={colors.subtitle}>
             Completa el formulario e inicia una sesión de captura en primer plano.
-          </Text>
+          </AppText>
         )}
-      </RutafyCard>
+      </AppCard>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {successMessage && !isActive ? (
+        <AppCard muted style={styles.successCard}>
+          <AppText variant="body" color={colors.primary}>
+            {successMessage}
+          </AppText>
+        </AppCard>
+      ) : null}
+
+      {error ? (
+        <AppText variant="caption" color={colors.danger}>
+          {error}
+        </AppText>
+      ) : null}
 
       {__DEV__ && isActive ? (
         <OperatorTrackingHealthPanel refreshKey={healthRefreshKey} />
@@ -102,7 +144,9 @@ export default function CapturaLogisticaScreen() {
       <Pressable
         style={styles.linkBtn}
         onPress={() => router.push('/captura-logistica/historial' as Href)}>
-        <Text style={styles.linkBtnText}>Historial de capturas</Text>
+        <AppText variant="bodyMedium" color={colors.primary}>
+          Historial de capturas
+        </AppText>
       </Pressable>
 
       {isActive && storedSession?.sessionId ? (
@@ -113,13 +157,15 @@ export default function CapturaLogisticaScreen() {
               `/captura-logistica/${encodeURIComponent(storedSession.sessionId)}` as Href,
             )
           }>
-          <Text style={styles.linkBtnText}>Ver resumen operacional</Text>
+          <AppText variant="bodyMedium" color={colors.primary}>
+            Ver resumen operacional
+          </AppText>
         </Pressable>
       ) : null}
 
       {!isActive ? (
-        <RutafyCard style={styles.formCard}>
-          <Text style={styles.sectionTitle}>Propósito</Text>
+        <AppCard style={styles.formCard}>
+          <AppText variant="overline">Propósito</AppText>
           <View style={styles.purposeRow}>
             {PURPOSE_OPTIONS.map((opt) => {
               const selected = purpose === opt.value;
@@ -129,15 +175,18 @@ export default function CapturaLogisticaScreen() {
                   style={[styles.purposeChip, selected && styles.purposeChipOn]}
                   onPress={() => setPurpose(opt.value)}
                   disabled={formDisabled}>
-                  <Text style={[styles.purposeChipText, selected && styles.purposeChipTextOn]}>
+                  <AppText
+                    variant="caption"
+                    color={selected ? colors.primary : colors.textPrimary}
+                    style={selected ? styles.purposeChipTextOn : undefined}>
                     {opt.label}
-                  </Text>
+                  </AppText>
                 </Pressable>
               );
             })}
           </View>
 
-          <Text style={styles.sectionTitle}>Vehículo</Text>
+          <AppText variant="overline">Vehículo</AppText>
           <TextInput
             style={styles.input}
             value={vehicleLabel}
@@ -147,7 +196,7 @@ export default function CapturaLogisticaScreen() {
             editable={!formDisabled}
           />
 
-          <Text style={styles.sectionTitle}>Notas (opcional)</Text>
+          <AppText variant="overline">Notas (opcional)</AppText>
           <TextInput
             style={[styles.input, styles.notesInput]}
             value={notes}
@@ -163,71 +212,80 @@ export default function CapturaLogisticaScreen() {
             onPress={() => setConsentAccepted((v) => !v)}
             disabled={formDisabled}>
             <View style={[styles.checkbox, consentAccepted && styles.checkboxOn]}>
-              {consentAccepted ? <Text style={styles.checkMark}>✓</Text> : null}
+              {consentAccepted ? (
+                <AppText variant="caption" color={colors.white}>
+                  ✓
+                </AppText>
+              ) : null}
             </View>
-            <Text style={styles.consentText}>{CONSENT_TEXT}</Text>
+            <AppText variant="caption" color={colors.subtitle} style={styles.consentText}>
+              {CONSENT_TEXT}
+            </AppText>
           </Pressable>
-        </RutafyCard>
+        </AppCard>
       ) : null}
 
       {loading ? (
         <ActivityIndicator color={RutafyColors.brand} style={styles.loader} />
       ) : null}
 
-      <RutafyButton
-        label={busy ? 'Procesando…' : 'Iniciar captura'}
-        onPress={() => void startCapture()}
-        disabled={formDisabled || !consentAccepted}
-        loading={busy && !isActive}
-      />
-
-      {isActive ? (
-        <RutafyButton
-          label={busy ? 'Finalizando…' : 'Finalizar captura'}
-          variant="danger"
-          onPress={() => {
-            void (async () => {
-              const endedId = await endCapture();
-              if (endedId) {
-                router.push(`/captura-logistica/${encodeURIComponent(endedId)}` as Href);
-              }
-            })();
-          }}
-          disabled={busy}
-          loading={busy}
+      {!isActive ? (
+        <AppButton
+          label={busy ? 'Procesando…' : 'Iniciar captura'}
+          onPress={() => void startCapture()}
+          disabled={formDisabled || !consentAccepted}
+          loading={busy && !closingAction}
         />
       ) : null}
+
+      {isActive ? (
+        <View style={styles.activeActions}>
+          <AppButton
+            label={
+              closingAction === 'end'
+                ? 'Finalizando…'
+                : 'Finalizar captura'
+            }
+            onPress={() => void handleEndCapture()}
+            disabled={busy}
+            loading={closingAction === 'end'}
+          />
+          <AppButton
+            label={
+              closingAction === 'cancel'
+                ? 'Cancelando…'
+                : 'Cancelar captura'
+            }
+            variant="danger"
+            onPress={() => setCancelDialogVisible(true)}
+            disabled={busy}
+            loading={closingAction === 'cancel'}
+          />
+        </View>
+      ) : null}
+
+      <AppDialog
+        visible={cancelDialogVisible}
+        title="Cancelar captura"
+        message="¿Seguro que deseas cancelar esta captura? Los puntos ya enviados se conservan, pero dejará de registrarse ubicación."
+        confirmLabel="Sí, cancelar"
+        cancelLabel="Volver"
+        destructive
+        onConfirm={() => void handleConfirmCancel()}
+        onCancel={() => setCancelDialogVisible(false)}
+      />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    padding: Spacing.four,
-    gap: Spacing.three,
+    padding: spacing.lg,
+    gap: spacing.base,
   },
-  statusCard: { gap: Spacing.two },
-  statusTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: RutafyColors.navy,
-  },
-  statusLine: {
-    fontSize: 14,
-    color: RutafyColors.textPrimary,
-  },
-  statusHint: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-    lineHeight: 20,
-  },
-  formCard: { gap: Spacing.two },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: RutafyColors.textPrimary,
-    marginTop: Spacing.one,
-  },
+  statusCard: { gap: spacing.sm },
+  successCard: { borderColor: colors.primary },
+  formCard: { gap: spacing.sm },
   purposeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -245,13 +303,8 @@ const styles = StyleSheet.create({
     borderColor: RutafyColors.brand,
     backgroundColor: '#E8F8F6',
   },
-  purposeChipText: {
-    fontSize: 12,
-    color: RutafyColors.textPrimary,
-  },
   purposeChipTextOn: {
     fontWeight: '600',
-    color: RutafyColors.brand,
   },
   input: {
     borderWidth: 1,
@@ -287,20 +340,9 @@ const styles = StyleSheet.create({
     backgroundColor: RutafyColors.brand,
     borderColor: RutafyColors.brand,
   },
-  checkMark: {
-    color: RutafyColors.white,
-    fontWeight: '700',
-    fontSize: 14,
-  },
   consentText: {
     flex: 1,
-    fontSize: 13,
-    color: RutafyColors.textSecondary,
     lineHeight: 18,
-  },
-  error: {
-    fontSize: 13,
-    color: RutafyColors.danger,
   },
   linkBtn: {
     borderWidth: 1,
@@ -317,9 +359,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: RutafyColors.white,
   },
-  linkBtnText: {
-    fontWeight: '600',
-    color: RutafyColors.brand,
-  },
   loader: { marginVertical: Spacing.two },
+  activeActions: { gap: spacing.sm },
 });

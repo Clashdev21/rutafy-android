@@ -4,6 +4,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import {
+  cancelTrackingSession,
   endTrackingSession,
   fetchTrackingSession,
   sendTrackingPointsBatch,
@@ -28,9 +29,11 @@ import { assertCanStartOperatorCapture } from '@/utils/operatorTrackingGuards';
 import { logOperatorBgHealth } from '@/utils/operatorTrackingHealthAudit';
 import {
   buildStoredTrackingSession,
+  cleanupLocalTrackingSession,
   clearActiveTrackingSession,
   isStoredTrackingSessionOwnedByUser,
   isTrackingSessionForbiddenOrNotFound,
+  isTrackingSessionNotActiveError,
 } from '@/utils/trackingSessionOwnership';
 import { toTrackingPoint } from '@/utils/trackingPointMapper';
 
@@ -57,7 +60,9 @@ export function useOperatorTrackingSession() {
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [closingAction, setClosingAction] = useState<'end' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [pointsSent, setPointsSent] = useState(0);
   const [lastPointAt, setLastPointAt] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -103,6 +108,30 @@ export function useOperatorTrackingSession() {
     bufferRef.current = [];
   }, []);
 
+  const stopOperatorBackground = useCallback(async () => {
+    await stopOperatorTrackingAsync();
+    operatorBgActiveRef.current = false;
+    setOperatorBgActive(false);
+  }, []);
+
+  const resetInactiveSessionState = useCallback(() => {
+    setStoredSession(null);
+    setRemoteStatus(null);
+    setOperatorBgActive(false);
+    operatorBgActiveRef.current = false;
+    setElapsedSeconds(0);
+    setPointsSent(0);
+    setLastPointAt(null);
+    setClosingAction(null);
+  }, []);
+
+  const handleSessionClosedRemotely = useCallback(async () => {
+    stopWatch();
+    await cleanupLocalTrackingSession('session_not_active');
+    resetInactiveSessionState();
+    setSuccessMessage('La captura ya fue cerrada remotamente.');
+  }, [resetInactiveSessionState, stopWatch]);
+
   const flushBuffer = useCallback(async (sessionId: string) => {
     if (operatorBgActiveRef.current) {
       bufferRef.current = [];
@@ -131,6 +160,10 @@ export function useOperatorTrackingSession() {
         console.log('[tracking-points-batch-ok]', { accepted });
       }
     } catch (e) {
+      if (isTrackingSessionNotActiveError(e)) {
+        await handleSessionClosedRemotely();
+        return;
+      }
       bufferRef.current.unshift(...batch);
       const msg = getApiErrorMessage(e, 'No se pudieron enviar puntos GPS');
       setError(msg);
@@ -140,7 +173,7 @@ export function useOperatorTrackingSession() {
     } finally {
       flushInFlightRef.current = false;
     }
-  }, []);
+  }, [handleSessionClosedRemotely]);
 
   const startWatch = useCallback(
     async (sessionId: string) => {
@@ -190,22 +223,6 @@ export function useOperatorTrackingSession() {
     operatorBgActiveRef.current = started;
     setOperatorBgActive(started);
     return started;
-  }, []);
-
-  const stopOperatorBackground = useCallback(async () => {
-    await stopOperatorTrackingAsync();
-    operatorBgActiveRef.current = false;
-    setOperatorBgActive(false);
-  }, []);
-
-  const resetInactiveSessionState = useCallback(() => {
-    setStoredSession(null);
-    setRemoteStatus(null);
-    setOperatorBgActive(false);
-    operatorBgActiveRef.current = false;
-    setElapsedSeconds(0);
-    setPointsSent(0);
-    setLastPointAt(null);
   }, []);
 
   const hydrateFromStorage = useCallback(async () => {
@@ -325,6 +342,7 @@ export function useOperatorTrackingSession() {
 
     setBusy(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       if (!user) {
         throw new Error('Debes iniciar sesión para iniciar la captura.');
@@ -383,31 +401,84 @@ export function useOperatorTrackingSession() {
     runOperatorBgHealthCheck,
   ]);
 
+  const finalizeCaptureLocally = useCallback(async () => {
+    await stopOperatorBackground();
+    stopWatch();
+    await cleanupLocalTrackingSession('capture_closed');
+    resetInactiveSessionState();
+  }, [resetInactiveSessionState, stopOperatorBackground, stopWatch]);
+
   const endCapture = useCallback(async (): Promise<string | null> => {
     const sessionId = sessionIdRef.current;
     if (!sessionId) return null;
 
     setBusy(true);
+    setClosingAction('end');
     setError(null);
+    setSuccessMessage(null);
+    if (__DEV__) {
+      console.log('[tracking-end-start]', { sessionId: shortSessionId(sessionId) });
+    }
     try {
       await flushBuffer(sessionId);
-      await endTrackingSession(sessionId);
+      const result = await endTrackingSession(sessionId);
       if (__DEV__) {
-        console.log('[tracking-session-end]', { sessionId: shortSessionId(sessionId) });
+        console.log('[tracking-end-ok]', {
+          sessionId: shortSessionId(result.session.session_id),
+          status: result.session.status,
+        });
       }
-      await stopOperatorBackground();
-      await trackingSessionStorage.clearActive();
-      setStoredSession(null);
-      setRemoteStatus(null);
-      stopWatch();
-      return sessionId;
+      await finalizeCaptureLocally();
+      setSuccessMessage('Captura finalizada correctamente.');
+      return result.session.session_id;
     } catch (e) {
-      setError(getApiErrorMessage(e, 'No se pudo finalizar la captura'));
+      const msg = getApiErrorMessage(e, 'No se pudo finalizar la captura');
+      setError(msg);
+      if (__DEV__) {
+        console.warn('[tracking-end-error]', { sessionId: shortSessionId(sessionId), msg });
+      }
       return null;
     } finally {
       setBusy(false);
+      setClosingAction(null);
     }
-  }, [flushBuffer, stopWatch, stopOperatorBackground]);
+  }, [finalizeCaptureLocally, flushBuffer]);
+
+  const cancelCapture = useCallback(async (): Promise<boolean> => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return false;
+
+    setBusy(true);
+    setClosingAction('cancel');
+    setError(null);
+    setSuccessMessage(null);
+    if (__DEV__) {
+      console.log('[tracking-cancel-start]', { sessionId: shortSessionId(sessionId) });
+    }
+    try {
+      await flushBuffer(sessionId);
+      const result = await cancelTrackingSession(sessionId);
+      if (__DEV__) {
+        console.log('[tracking-cancel-ok]', {
+          sessionId: shortSessionId(result.session.session_id),
+          status: result.session.status,
+        });
+      }
+      await finalizeCaptureLocally();
+      setSuccessMessage('Captura cancelada');
+      return true;
+    } catch (e) {
+      const msg = getApiErrorMessage(e, 'No se pudo cancelar la captura');
+      setError(msg);
+      if (__DEV__) {
+        console.warn('[tracking-cancel-error]', { sessionId: shortSessionId(sessionId), msg });
+      }
+      return false;
+    } finally {
+      setBusy(false);
+      setClosingAction(null);
+    }
+  }, [finalizeCaptureLocally, flushBuffer]);
 
   return {
     isActive,
@@ -425,12 +496,16 @@ export function useOperatorTrackingSession() {
     setConsentAccepted,
     loading,
     busy,
+    closingAction,
     error,
+    successMessage,
+    clearSuccessMessage: () => setSuccessMessage(null),
     pointsSent,
     lastPointAt,
     elapsedSeconds,
     startCapture,
     endCapture,
+    cancelCapture,
     refresh: hydrateFromStorage,
     syncOperatorBgState,
     runOperatorBgHealthCheck,

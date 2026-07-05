@@ -1,12 +1,14 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RutafyColors, RutafyTypography } from '@/constants/rutafyTheme';
+import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
+import { colors } from '@/theme/colors';
+import { fontFamily } from '@/theme/typography';
 
-const TAB_TITLES: Record<string, string> = {
-  index: 'Inicio',
-  actividad: 'Actividad',
-  cuenta: 'Cuenta',
+const TAB_CONFIG: Record<string, { title: string; icon: AppIconName }> = {
+  index: { title: 'Inicio', icon: 'home' },
+  actividad: { title: 'Actividad', icon: 'history' },
+  cuenta: { title: 'Cuenta', icon: 'person' },
 };
 
 type TabRoute = {
@@ -37,10 +39,9 @@ export function RutafyTabBar({ state, descriptors, navigation }: RutafyTabBarPro
       {state.routes.map((route: TabRoute, index: number) => {
         const focused = state.index === index;
         const { options } = descriptors[route.key];
+        const config = TAB_CONFIG[route.name] ?? { title: route.name, icon: 'home' as AppIconName };
         const label =
-          (typeof options.title === 'string' ? options.title : null) ??
-          TAB_TITLES[route.name] ??
-          route.name;
+          (typeof options.title === 'string' ? options.title : null) ?? config.title;
 
         return (
           <Pressable
@@ -59,6 +60,11 @@ export function RutafyTabBar({ state, descriptors, navigation }: RutafyTabBarPro
             }}
             style={styles.tab}
             pointerEvents="auto">
+            <AppIcon
+              name={config.icon}
+              size={22}
+              color={focused ? colors.primary : colors.subtitle}
+            />
             <View style={[styles.indicator, focused && styles.indicatorFocused]} />
             <Text style={[styles.label, focused && styles.labelFocused]}>{label}</Text>
           </Pressable>
@@ -72,37 +78,36 @@ const styles = StyleSheet.create({
   wrap: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: RutafyColors.border,
-    backgroundColor: RutafyColors.surface,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
     paddingTop: 8,
     paddingHorizontal: 8,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     paddingVertical: 4,
   },
   indicator: {
-    width: 4,
-    height: 4,
+    width: 0,
+    height: 3,
     borderRadius: 2,
     backgroundColor: 'transparent',
   },
   indicatorFocused: {
-    backgroundColor: RutafyColors.brand,
-    width: 20,
-    borderRadius: 2,
+    width: 24,
+    backgroundColor: colors.primary,
   },
   label: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    color: RutafyColors.textSecondary,
-    fontFamily: RutafyTypography.fontFamilyMedium,
+    color: colors.subtitle,
+    fontFamily: fontFamily.medium,
   },
   labelFocused: {
-    color: RutafyColors.brand,
+    color: colors.primary,
     fontWeight: '700',
-    fontFamily: RutafyTypography.fontFamilyBold,
+    fontFamily: fontFamily.bold,
   },
 });

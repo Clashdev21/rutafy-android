@@ -1,21 +1,13 @@
 import { type Href, router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth/useAuth';
 import { RutafyLogo } from '@/components/brand/RutafyLogo';
-import { authScreenStyles as styles } from '@/constants/authScreenStyles';
-import { RutafyColors } from '@/constants/rutafyTheme';
-import { Spacing } from '@/constants/theme';
+import { AppButton, AppCard, AppInput, AppText } from '@/components/ui';
+import { colors } from '@/theme/colors';
+import { spacing } from '@/theme/spacing';
 import { getHomeHrefForUser } from '@/utils/roles';
 
 export default function LoginScreen() {
@@ -59,30 +51,23 @@ export default function LoginScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.inner}>
           <View style={styles.hero}>
-            <RutafyLogo variant="full" iconSize={52} />
-            <Text style={styles.heroText}>
-              Plataforma logística para operación en campo, terminales y rutas.
-            </Text>
+            <RutafyLogo variant="stack" iconSize={72} />
+            <AppText variant="heading" style={styles.title}>
+              Acceso operativo
+            </AppText>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Acceso operativo</Text>
-            <Text style={styles.cardSubtitle}>Ingresa con tu cuenta de mensajero o transportista</Text>
-
-            <TextInput
-              style={styles.input}
+          <AppCard style={styles.card}>
+            <AppInput
               placeholder="Teléfono"
-              placeholderTextColor={RutafyColors.textSecondary}
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
               autoComplete="tel"
               editable={!busy}
             />
-            <TextInput
-              style={styles.input}
+            <AppInput
               placeholder="Contraseña"
-              placeholderTextColor={RutafyColors.textSecondary}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -90,29 +75,53 @@ export default function LoginScreen() {
               editable={!busy}
             />
 
-            {displayError ? <Text style={styles.error}>{displayError}</Text> : null}
+            {displayError ? (
+              <AppText variant="caption" color={colors.danger} style={styles.error}>
+                {displayError}
+              </AppText>
+            ) : null}
 
-            <Pressable
-              style={[styles.button, busy && styles.buttonDisabled]}
+            <AppButton
+              label="Entrar"
+              loading={busy}
+              disabled={busy}
               onPress={() => void handleSubmit()}
-              disabled={busy}>
-              {busy ? (
-                <ActivityIndicator color={RutafyColors.white} />
-              ) : (
-                <Text style={styles.buttonLabel}>Entrar</Text>
-              )}
-            </Pressable>
+            />
 
-            <Pressable
-              style={styles.linkRow}
-              onPress={() => router.push('/register' as Href)}>
-              <Text style={styles.linkText}>
-                ¿No tienes cuenta? <Text style={styles.linkAction}>Crear cuenta</Text>
-              </Text>
+            <Pressable style={styles.linkRow} onPress={() => router.push('/register' as Href)}>
+              <AppText variant="caption" style={styles.linkText}>
+                ¿No tienes cuenta?{' '}
+                <AppText variant="caption" color={colors.primary}>
+                  Crear cuenta
+                </AppText>
+              </AppText>
             </Pressable>
-          </View>
+          </AppCard>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
+  inner: {
+    flex: 1,
+    padding: spacing.xl,
+    gap: spacing['2xl'],
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+    justifyContent: 'center',
+  },
+  hero: {
+    alignItems: 'center',
+    gap: spacing.base,
+  },
+  title: { textAlign: 'center' },
+  card: { gap: spacing.md },
+  error: { textAlign: 'center' },
+  linkRow: { alignItems: 'center', marginTop: spacing.xs },
+  linkText: { textAlign: 'center' },
+});

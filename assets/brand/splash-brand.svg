@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 260" fill="none" role="img" aria-label="Rutafy">
+  <g transform="translate(128 16)">
+    <rect width="64" height="64" rx="14" fill="#0F172A"/>
+    <path d="M20 44V20h12.5c6.8 0 10.5 3.4 10.5 8.8 0 4.5-2.8 7.4-7.1 8.3L48 44h-9.8l-9.2-7.2H28v7.2H20z" stroke="#86EFAC" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M28 20v24M28 28h9.8c3.4 0 5.4-1.7 5.4-4.5S41.2 20 37.8 20H28" stroke="#F8FAFC" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M31 24h8" stroke="#F8FAFC" stroke-width="1.2" stroke-dasharray="2.5 2.5" stroke-linecap="round"/>
+    <path d="M43 18c0 4.2-3.4 7.6-7.6 7.6S27.8 22.2 27.8 18 31.2 10.4 35.4 10.4 43 13.8 43 18z" fill="#16A34A"/>
+    <circle cx="35.4" cy="18" r="2.2" fill="#FFFFFF"/>
+  </g>
+  <text x="160" y="118" text-anchor="middle" fill="#1F2937" font-family="sans-serif" font-size="34" font-weight="700">Rutafy</text>
+  <text x="160" y="148" text-anchor="middle" fill="#64748B" font-family="sans-serif" font-size="15" font-weight="500">Logistica operativa</text>
+</svg>

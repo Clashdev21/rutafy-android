@@ -1,20 +1,14 @@
 import { type Href, router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ServiceListItem } from '@/components/services/ServiceListItem';
+import { AppEmptyState, AppHeader, AppSkeletonCard } from '@/components/ui';
 import { getTabBarScrollPadding } from '@/constants/tabBarLayout';
-import { RutafyColors } from '@/constants/rutafyTheme';
 import { useMensajeroOperationsContext } from '@/contexts/MensajeroOperationsContext';
-import { Spacing } from '@/constants/theme';
+import { colors } from '@/theme/colors';
+import { spacing } from '@/theme/spacing';
 
 export default function MensajeroActividadScreen() {
   const {
@@ -36,16 +30,10 @@ export default function MensajeroActividadScreen() {
   const insets = useSafeAreaInsets();
   const listBottom = getTabBarScrollPadding(insets.bottom);
 
-  const emptyMessage =
-    uiState === 'OFFLINE'
-      ? 'Estás offline. Desliza hacia abajo para actualizar tu historial.'
-      : 'No hay servicios cargados. Desliza para actualizar tu historial.';
-
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <Text style={styles.title}>Actividad</Text>
-        <Text style={styles.subtitle}>Servicios asignados y en curso</Text>
+        <AppHeader title="Actividad" subtitle="Servicios asignados y en curso" />
 
         <FlatList
           style={styles.listFlex}
@@ -55,18 +43,34 @@ export default function MensajeroActividadScreen() {
             <RefreshControl
               refreshing={busy}
               onRefresh={() => void refreshMyServices(false)}
+              tintColor={colors.primary}
             />
           }
           contentContainerStyle={[styles.list, { paddingBottom: listBottom }]}
           ListEmptyComponent={
             loadingMy ? (
-              <ActivityIndicator color={RutafyColors.brand} style={styles.loader} />
+              <View style={styles.skeletonList}>
+                <AppSkeletonCard />
+                <AppSkeletonCard />
+              </View>
             ) : (
-              <Text style={styles.empty}>{emptyMessage}</Text>
+              <AppEmptyState
+                icon={uiState === 'OFFLINE' ? 'search' : 'inbox'}
+                title={
+                  uiState === 'OFFLINE'
+                    ? 'Estás offline'
+                    : 'Sin servicios en tu historial'
+                }
+                description={
+                  uiState === 'OFFLINE'
+                    ? 'Activa tu disponibilidad para recibir ofertas y ver tu actividad actualizada.'
+                    : 'Cuando aceptes servicios aparecerán aquí con estado, ruta y acceso al detalle.'
+                }
+                actionLabel="Actualizar"
+                onAction={() => void refreshMyServices(false)}
+                loading={busy}
+              />
             )
-          }
-          ListFooterComponent={
-            <Text style={styles.pollHint}>Actualización automática según estado operacional</Text>
           }
           renderItem={({ item }) => (
             <ServiceListItem
@@ -81,26 +85,9 @@ export default function MensajeroActividadScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
-  safe: { flex: 1, paddingHorizontal: Spacing.four, paddingTop: Spacing.two },
-  title: { fontSize: 28, fontWeight: '700', color: RutafyColors.textPrimary },
-  subtitle: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-    marginBottom: Spacing.three,
-  },
+  container: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
   listFlex: { flex: 1 },
-  list: { gap: Spacing.two, flexGrow: 1 },
-  empty: {
-    textAlign: 'center',
-    paddingVertical: Spacing.four,
-    color: RutafyColors.textSecondary,
-  },
-  loader: { marginVertical: Spacing.four },
-  pollHint: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: RutafyColors.textSecondary,
-    marginTop: Spacing.three,
-  },
+  list: { gap: spacing.md, flexGrow: 1 },
+  skeletonList: { gap: spacing.md, paddingTop: spacing.sm },
 });

@@ -1,12 +1,16 @@
+import axios from 'axios';
+
 import { apiClient } from '@/api/client';
 import { TRACKING_SESSION_ENDPOINTS } from '@/api/endpoints';
 import type {
   TrackingPoint,
   TrackingPointInput,
   TrackingSession,
+  TrackingSessionCloseResult,
   TrackingSessionDetail,
   TrackingSessionPurpose,
   TrackingSessionStats,
+  TrackingSessionStatus,
 } from '@/types/tracking';
 
 function pickStr(v: unknown): string | null {
@@ -180,18 +184,79 @@ export async function sendTrackingPointsBatch(
   return { accepted };
 }
 
-export async function endTrackingSession(sessionId: string): Promise<TrackingSession> {
-  const { data } = await apiClient.patch(TRACKING_SESSION_ENDPOINTS.end(sessionId), {});
-  const session = normalizeSession(data);
-  if (!session) {
-    return {
-      id: sessionId,
-      status: 'ended',
-      purpose: 'operacion_interna',
-      vehicle_label: '',
-    };
+function normalizeCloseResult(
+  raw: unknown,
+  fallbackSessionId: string,
+): TrackingSessionCloseResult {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Respuesta inválida al cerrar captura logística');
   }
-  return session;
+  const row = raw as Record<string, unknown>;
+  const sessionRaw =
+    row.session && typeof row.session === 'object'
+      ? (row.session as Record<string, unknown>)
+      : row;
+  const session_id =
+    pickStr(sessionRaw.session_id) ?? pickStr(sessionRaw.id) ?? fallbackSessionId;
+  const status = (pickStr(sessionRaw.status) ?? 'ended') as TrackingSessionStatus;
+  return {
+    ok: row.ok === true || row.ok === undefined,
+    session: {
+      session_id,
+      status,
+      ended_at: pickStr(sessionRaw.ended_at),
+    },
+  };
+}
+
+async function postCloseSession(
+  sessionId: string,
+  path: string,
+  fallbackStatus: TrackingSessionStatus,
+): Promise<TrackingSessionCloseResult> {
+  try {
+    const { data } = await apiClient.post(path, {});
+    return normalizeCloseResult(data, sessionId);
+  } catch (error) {
+    if (
+      axios.isAxiosError(error) &&
+      (error.response?.status === 404 || error.response?.status === 405) &&
+      path.endsWith('/end')
+    ) {
+      const { data } = await apiClient.patch(path, {});
+      const result = normalizeCloseResult(data, sessionId);
+      if (result.session.status === 'active') {
+        result.session.status = fallbackStatus;
+      }
+      return result;
+    }
+    throw error;
+  }
+}
+
+export async function endTrackingSession(
+  sessionId: string,
+): Promise<TrackingSessionCloseResult> {
+  const result = await postCloseSession(
+    sessionId,
+    TRACKING_SESSION_ENDPOINTS.end(sessionId),
+    'ended',
+  );
+  if (result.session.status === 'active') {
+    result.session.status = 'ended';
+  }
+  return result;
+}
+
+export async function cancelTrackingSession(
+  sessionId: string,
+): Promise<TrackingSessionCloseResult> {
+  const { data } = await apiClient.post(TRACKING_SESSION_ENDPOINTS.cancel(sessionId), {});
+  const result = normalizeCloseResult(data, sessionId);
+  if (result.session.status === 'active') {
+    result.session.status = 'abandoned';
+  }
+  return result;
 }
 
 export async function fetchTrackingSessionDetail(

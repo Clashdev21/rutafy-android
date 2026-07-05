@@ -1,92 +1,83 @@
 import { Image } from 'expo-image';
-import {
-  StyleSheet,
-  Text,
-  View,
-  type ImageStyle,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { brandImages } from '@/constants/brandAssets';
-import { RutafyColors, RutafyTypography } from '@/constants/rutafyTheme';
+import { brandImages, LOGO_FULL_ASPECT_RATIO } from '@/constants/brandAssets';
+import { spacing } from '@/theme/spacing';
+
+type Variant = 'icon' | 'full' | 'stack';
 
 type Props = {
-  variant?: 'icon' | 'full';
-  theme?: 'light' | 'dark';
+  variant?: Variant;
+  /** Alto del isotipo o wordmark según variante. */
   iconSize?: number;
   style?: StyleProp<ViewStyle>;
 };
 
 export function RutafyLogo({
   variant = 'full',
-  theme = 'light',
   iconSize = 56,
   style,
 }: Props) {
-  const isDark = theme === 'dark';
-  const titleColor = isDark ? RutafyColors.white : RutafyColors.navy;
-  const taglineColor = isDark ? RutafyColors.brandLight : RutafyColors.textSecondary;
+  if (variant === 'stack') {
+    const isotypeSize = iconSize;
+    const wordmarkHeight = Math.round(iconSize * 0.42);
+    const wordmarkWidth = Math.round(wordmarkHeight * LOGO_FULL_ASPECT_RATIO);
 
-  const iconStyle: StyleProp<ImageStyle> = {
-    width: iconSize,
-    height: iconSize,
-    borderRadius: 14,
-  };
+    return (
+      <View style={[styles.stack, style]}>
+        <Image
+          source={brandImages.logoIcon}
+          style={{
+            width: isotypeSize,
+            height: isotypeSize,
+            borderRadius: Math.round(isotypeSize * 0.22),
+          }}
+          contentFit="contain"
+          accessibilityLabel="Rutafy isotipo"
+        />
+        <Image
+          source={brandImages.logoFull}
+          style={{ width: wordmarkWidth, height: wordmarkHeight, marginTop: spacing.md }}
+          contentFit="contain"
+          accessibilityLabel="Rutafy"
+        />
+      </View>
+    );
+  }
 
   if (variant === 'icon') {
     return (
       <Image
         source={brandImages.logoIcon}
-        style={iconStyle}
+        style={{
+          width: iconSize,
+          height: iconSize,
+          borderRadius: Math.round(iconSize * 0.22),
+        }}
         contentFit="contain"
         accessibilityLabel="Rutafy"
       />
     );
   }
 
+  const fullHeight = iconSize;
+  const fullWidth = Math.round(fullHeight * LOGO_FULL_ASPECT_RATIO);
+
   return (
-    <View style={[styles.full, style]}>
-      <Image
-        source={brandImages.logoIcon}
-        style={iconStyle}
-        contentFit="contain"
-        accessibilityLabel="Rutafy"
-      />
-      <View style={styles.copy}>
-        <Text
-          style={[
-            styles.title,
-            { color: titleColor, fontFamily: RutafyTypography.fontFamilyBold },
-          ]}>
-          Rutafy
-        </Text>
-        <Text
-          style={[
-            styles.tagline,
-            { color: taglineColor, fontFamily: RutafyTypography.fontFamilyMedium },
-          ]}>
-          Logística operativa
-        </Text>
-      </View>
-    </View>
+    <Image
+      source={brandImages.logoFull}
+      style={[
+        styles.fullLogo,
+        { width: fullWidth, height: fullHeight },
+        style as object,
+      ]}
+      contentFit="contain"
+      accessibilityLabel="Rutafy"
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  full: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  copy: { gap: 2 },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: -0.5,
-  },
-  tagline: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
+  stack: { alignItems: 'center' },
+  fullLogo: { maxWidth: '100%' },
 });

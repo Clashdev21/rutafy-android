@@ -6,10 +6,11 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext';
 import { sessionEvents } from '@/auth/sessionEvents';
 import { tokenStorage } from '@/auth/tokenStorage';
 import * as authService from '@/services/authService';
+import { unregisterDevicePushTokenAsync } from '@/services/notificationService';
 import {
-  registerDevicePushTokenAsync,
-  unregisterDevicePushTokenAsync,
-} from '@/services/notificationService';
+  registerPushIfSessionReady,
+  type PushRegisterSource,
+} from '@/services/pushRegistration';
 import type { AuthUser, LoginCredentials, RegisterTransportistaPayload } from '@/types/auth';
 import { getApiErrorMessage } from '@/utils/errors';
 import {
@@ -27,10 +28,6 @@ function logLogoutReason(reason: string, detail?: unknown): void {
   if (__DEV__) {
     console.log('[auth-logout-reason]', { reason, detail });
   }
-}
-
-function schedulePushRegistration(): void {
-  void registerDevicePushTokenAsync();
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
@@ -80,7 +77,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       setUser(me);
       setError(null);
-      schedulePushRegistration();
+      void registerPushIfSessionReady(me, 'restore_session');
     } catch (e) {
       if (isTransientNetworkError(e)) {
         if (__DEV__) {
@@ -131,40 +128,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => sub.remove();
   }, [error, refreshSession]);
 
-  const finalizeAuthenticatedUser = useCallback(async (me: AuthUser): Promise<AuthUser> => {
-    if (isAdminRole(me.appRole)) {
-      await authService.logout();
-      setUser(null);
-      setHasPersistedSession(false);
-      setError('Las cuentas de administrador solo están disponibles en la web.');
-      throw new Error('ADMIN_NOT_SUPPORTED');
-    }
-    if (!isMobileSupportedRole(me.appRole)) {
-      await authService.logout();
-      setUser(null);
-      setHasPersistedSession(false);
-      setError('Este tipo de cuenta no está disponible en la app móvil.');
-      throw new Error('ROLE_NOT_SUPPORTED');
-    }
-    if (!me.actor_id?.trim()) {
-      await authService.logout();
-      setUser(null);
-      setHasPersistedSession(false);
-      setError('Sesión sin actor operativo válido.');
-      throw new Error('ACTOR_NOT_SUPPORTED');
-    }
-    setUser(me);
-    setHasPersistedSession(true);
-    schedulePushRegistration();
-    return me;
-  }, []);
+  const finalizeAuthenticatedUser = useCallback(
+    async (me: AuthUser, source: PushRegisterSource): Promise<AuthUser> => {
+      if (isAdminRole(me.appRole)) {
+        await authService.logout();
+        setUser(null);
+        setHasPersistedSession(false);
+        setError('Las cuentas de administrador solo están disponibles en la web.');
+        throw new Error('ADMIN_NOT_SUPPORTED');
+      }
+      if (!isMobileSupportedRole(me.appRole)) {
+        await authService.logout();
+        setUser(null);
+        setHasPersistedSession(false);
+        setError('Este tipo de cuenta no está disponible en la app móvil.');
+        throw new Error('ROLE_NOT_SUPPORTED');
+      }
+      if (!me.actor_id?.trim()) {
+        await authService.logout();
+        setUser(null);
+        setHasPersistedSession(false);
+        setError('Sesión sin actor operativo válido.');
+        throw new Error('ACTOR_NOT_SUPPORTED');
+      }
+      setUser(me);
+      setHasPersistedSession(true);
+      await registerPushIfSessionReady(me, source);
+      return me;
+    },
+    [],
+  );
 
   const login = useCallback(async (credentials: LoginCredentials): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
     try {
       const me = await authService.login(credentials);
-      return await finalizeAuthenticatedUser(me);
+      return await finalizeAuthenticatedUser(me, 'login');
     } catch (e) {
       if (
         e instanceof Error &&
@@ -190,7 +190,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setError(null);
       try {
         const me = await authService.registerTransportista(payload);
-        return await finalizeAuthenticatedUser(me);
+        return await finalizeAuthenticatedUser(me, 'register_transportista');
       } catch (e) {
         if (
           e instanceof Error &&

@@ -4,17 +4,17 @@
     "slug": "rutafy-android",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/app-icon.png",
     "scheme": "rutafyandroid",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/app-icon.png"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1F2937",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "monochromeImage": "./assets/images/android-icon-foreground.png"
+        "backgroundColor": "#0F172A",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "monochromeImage": "./assets/images/adaptive-icon.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -37,10 +37,10 @@
         {
           "backgroundColor": "#F8FAFC",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 220,
+          "imageWidth": 280,
           "android": {
             "image": "./assets/images/splash-icon.png",
-            "imageWidth": 220
+            "imageWidth": 280
           }
         }
       ],
@@ -56,8 +56,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/android-icon-foreground.png",
-          "color": "#2A9D8F"
+          "icon": "./assets/images/adaptive-icon.png",
+          "color": "#16A34A"
         }
       ]
     ],

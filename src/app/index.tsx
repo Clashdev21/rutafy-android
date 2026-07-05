@@ -1,10 +1,11 @@
 import { Redirect, type Href } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import { RutafyLogo } from '@/components/brand/RutafyLogo';
-import { RutafyColors, RutafyTypography } from '@/constants/rutafyTheme';
-import { Spacing } from '@/constants/theme';
+import { AppSkeleton, AppText } from '@/components/ui';
+import { colors } from '@/theme/colors';
+import { spacing } from '@/theme/spacing';
 import { getHomeHrefForUser } from '@/utils/roles';
 
 export default function IndexScreen() {
@@ -13,9 +14,12 @@ export default function IndexScreen() {
   if (isLoading) {
     return (
       <View style={styles.loading}>
-        <RutafyLogo variant="full" iconSize={48} />
-        <ActivityIndicator size="large" color={RutafyColors.brand} style={styles.spinner} />
-        <Text style={styles.loadingText}>Cargando operación…</Text>
+        <RutafyLogo variant="stack" iconSize={72} />
+        <View style={styles.skeletonBlock}>
+          <AppSkeleton width="60%" height={14} />
+          <AppSkeleton width="40%" height={14} />
+        </View>
+        <AppText variant="caption">Cargando operación…</AppText>
       </View>
     );
   }
@@ -32,14 +36,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: RutafyColors.loginBackground,
-    padding: Spacing.four,
-    gap: Spacing.three,
+    backgroundColor: colors.background,
+    padding: spacing.xl,
+    gap: spacing.xl,
   },
-  spinner: { marginTop: Spacing.two },
-  loadingText: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-    fontFamily: RutafyTypography.fontFamily,
+  skeletonBlock: {
+    width: '100%',
+    maxWidth: 240,
+    gap: spacing.sm,
+    alignItems: 'center',
   },
 });

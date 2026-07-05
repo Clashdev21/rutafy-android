@@ -71,6 +71,15 @@ export type TrackingPointInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type TrackingSessionCloseResult = {
+  ok: boolean;
+  session: {
+    session_id: string;
+    status: TrackingSessionStatus;
+    ended_at: string | null;
+  };
+};
+
 export type StoredTrackingSession = {
   sessionId: string;
   ownerUserId: string;

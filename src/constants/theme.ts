@@ -7,6 +7,7 @@ import '@/global.css';
 import { Platform } from 'react-native';
 
 import { RutafyBrandPalette, RutafyTypography } from '@/constants/rutafyTheme';
+import { spacing as themeSpacing } from '@/theme/spacing';
 
 export const Colors = {
   light: {
@@ -54,14 +55,15 @@ export const Fonts = Platform.select({
   },
 });
 
+/** @deprecated Preferir `spacing` desde `@/theme` */
 export const Spacing = {
   half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
+  one: themeSpacing.xs,
+  two: themeSpacing.sm,
+  three: themeSpacing.base,
+  four: themeSpacing.xl,
+  five: themeSpacing['2xl'],
+  six: themeSpacing['5xl'],
 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
