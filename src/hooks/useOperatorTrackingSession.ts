@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
@@ -17,6 +18,12 @@ import {
   startOperatorTrackingAsync,
   stopOperatorTrackingAsync,
 } from '@/services/operatorTrackingService';
+import {
+  gpsDetailFromPoint,
+  recordTrackingDiagnostic,
+  runTrackingHealthCheck,
+  setSessionEndReason,
+} from '@/services/trackingDiagnostics';
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type {
@@ -45,6 +52,36 @@ const FG_POINT_METADATA = { source: 'android_mvp' as const };
 function shortSessionId(id: string): string {
   const compact = id.replace(/-/g, '');
   return compact.length > 8 ? compact.slice(0, 8) : compact;
+}
+
+function recordForegroundBatchError(
+  error: unknown,
+  sessionId: string,
+  startedAt: number,
+  pointCount: number,
+): void {
+  const latencyMs = Date.now() - startedAt;
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const detail = {
+      channel: 'foreground',
+      latencyMs,
+      pointCount,
+      status: status ?? null,
+      error: error.message,
+    };
+    if (status === 401) recordTrackingDiagnostic('batch-401', detail, sessionId);
+    else if (status === 403) recordTrackingDiagnostic('batch-403', detail, sessionId);
+    else if (status != null && status >= 500) recordTrackingDiagnostic('batch-500', detail, sessionId);
+    else if (error.code === 'ECONNABORTED') recordTrackingDiagnostic('batch-timeout', detail, sessionId);
+    else recordTrackingDiagnostic('batch-error', detail, sessionId);
+    return;
+  }
+  recordTrackingDiagnostic(
+    'batch-error',
+    { channel: 'foreground', latencyMs, pointCount, error: String(error) },
+    sessionId,
+  );
 }
 
 export function useOperatorTrackingSession() {
@@ -143,7 +180,18 @@ export function useOperatorTrackingSession() {
     if (batch.length === 0) return;
 
     flushInFlightRef.current = true;
+    const batchStartedAt = Date.now();
     try {
+      recordTrackingDiagnostic(
+        'batch-created',
+        { pointCount: batch.length, channel: 'foreground' },
+        sessionId,
+      );
+      recordTrackingDiagnostic(
+        'batch-send',
+        { pointCount: batch.length, channel: 'foreground' },
+        sessionId,
+      );
       if (__DEV__) {
         console.log('[tracking-points-batch]', {
           sessionId: shortSessionId(sessionId),
@@ -151,6 +199,17 @@ export function useOperatorTrackingSession() {
         });
       }
       const { accepted } = await sendTrackingPointsBatch(sessionId, batch);
+      const latencyMs = Date.now() - batchStartedAt;
+      recordTrackingDiagnostic(
+        'batch-success',
+        { channel: 'foreground', pointCount: batch.length, latencyMs },
+        sessionId,
+      );
+      recordTrackingDiagnostic(
+        'batch-accepted',
+        { channel: 'foreground', accepted, latencyMs },
+        sessionId,
+      );
       setPointsSent((n) => n + accepted);
       const last = batch[batch.length - 1];
       setLastPointAt(last.captured_at);
@@ -160,6 +219,7 @@ export function useOperatorTrackingSession() {
         console.log('[tracking-points-batch-ok]', { accepted });
       }
     } catch (e) {
+      recordForegroundBatchError(e, sessionId, batchStartedAt, batch.length);
       if (isTrackingSessionNotActiveError(e)) {
         await handleSessionClosedRemotely();
         return;
@@ -198,6 +258,7 @@ export function useOperatorTrackingSession() {
           const point = toTrackingPoint(update, 'foreground', FG_POINT_METADATA);
           if (!point) return;
 
+          recordTrackingDiagnostic('gps-fix-received', gpsDetailFromPoint(point), sid);
           setLastPointAt(point.captured_at);
 
           if (operatorBgActiveRef.current) {
@@ -205,6 +266,11 @@ export function useOperatorTrackingSession() {
           }
 
           bufferRef.current.push(point);
+          recordTrackingDiagnostic(
+            'point-buffered',
+            { bufferSize: bufferRef.current.length, channel: 'foreground' },
+            sid,
+          );
           const now = Date.now();
           if (
             now - lastFlushAtRef.current >= BATCH_FLUSH_MS ||
@@ -246,6 +312,10 @@ export function useOperatorTrackingSession() {
       setStoredSession(local);
       setPurpose(local.purpose);
       setVehicleLabel(local.vehicleLabel);
+      recordTrackingDiagnostic('tracking-restored', {
+        sessionId: local.sessionId,
+        startedAt: local.startedAt,
+      }, local.sessionId);
 
       try {
         const remote = await fetchTrackingSession(local.sessionId);
@@ -311,6 +381,51 @@ export function useOperatorTrackingSession() {
   }, [isActive, storedSession?.startedAt]);
 
   useEffect(() => {
+    const mapStateToLifecycle = (state: AppStateStatus): string | null => {
+      if (state === 'active') return 'app-active';
+      if (state === 'background') return 'app-background';
+      if (state === 'inactive') return 'app-inactive';
+      return null;
+    };
+
+    const initial = mapStateToLifecycle(AppState.currentState);
+    if (initial) recordTrackingDiagnostic(initial, { appState: AppState.currentState });
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        recordTrackingDiagnostic('app-foreground', { appState: nextState });
+      } else if (nextState === 'background') {
+        recordTrackingDiagnostic('app-background', { appState: nextState });
+      } else if (nextState === 'inactive') {
+        recordTrackingDiagnostic('app-inactive', { appState: nextState });
+      }
+    });
+
+    return () => {
+      recordTrackingDiagnostic('app-destroyed', { appState: AppState.currentState });
+      sub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const runCheck = async () => {
+      const fgStarted = await isOperatorTrackingStartedAsync();
+      await runTrackingHealthCheck({
+        sessionId: sessionIdRef.current ?? undefined,
+        fgServiceStarted: fgStarted,
+        taskManagerStarted: fgStarted,
+        hasLocalSession: true,
+      });
+    };
+
+    void runCheck();
+    const id = setInterval(() => void runCheck(), 60_000);
+    return () => clearInterval(id);
+  }, [isActive]);
+
+  useEffect(() => {
     if (!isActive) return;
 
     const sub = AppState.addEventListener('change', (nextState) => {
@@ -366,6 +481,11 @@ export function useOperatorTrackingSession() {
       setRemoteStatus(session.status);
       setPointsSent(0);
       setLastPointAt(null);
+      recordTrackingDiagnostic(
+        'tracking-start',
+        { purpose: session.purpose, vehicleLabel: label },
+        session.id,
+      );
 
       if (__DEV__) {
         console.log('[tracking-session-start]', {
@@ -428,6 +548,8 @@ export function useOperatorTrackingSession() {
           status: result.session.status,
         });
       }
+      recordTrackingDiagnostic('tracking-stop', { status: result.session.status }, sessionId);
+      await setSessionEndReason('user');
       await finalizeCaptureLocally();
       setSuccessMessage('Captura finalizada correctamente.');
       return result.session.session_id;
@@ -464,6 +586,8 @@ export function useOperatorTrackingSession() {
           status: result.session.status,
         });
       }
+      recordTrackingDiagnostic('tracking-cancel', { status: result.session.status }, sessionId);
+      await setSessionEndReason('user');
       await finalizeCaptureLocally();
       setSuccessMessage('Captura cancelada');
       return true;

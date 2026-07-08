@@ -11,6 +11,7 @@ export default function CapturaLogisticaLayout() {
         name="[sessionId]"
         options={{ title: 'Resumen operacional' }}
       />
+      <Stack.Screen name="diagnostico" options={{ title: 'Diagnóstico' }} />
     </Stack>
   );
 }

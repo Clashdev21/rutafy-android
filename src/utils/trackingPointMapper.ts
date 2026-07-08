@@ -1,5 +1,6 @@
 import type { LocationObject } from 'expo-location';
 
+import { gpsDetailFromPoint, recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import type { TrackingPointAppState, TrackingPointInput } from '@/types/tracking';
 
 type CoordsLike = {
@@ -29,7 +30,7 @@ export function toTrackingPoint(
   const speed = coords?.speed;
   const heading = coords?.heading;
 
-  return {
+  const point: TrackingPointInput = {
     lat: lat as number,
     lng: lng as number,
     captured_at: new Date(timestamp).toISOString(),
@@ -43,6 +44,9 @@ export function toTrackingPoint(
     app_state: appState,
     metadata,
   };
+
+  recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point));
+  return point;
 }
 
 export function locationsToTrackingPoints(

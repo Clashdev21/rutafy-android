@@ -1,9 +1,14 @@
 import axios from 'axios';
 
 import { stopOperatorTrackingAsync } from '@/services/operatorTrackingService';
+import {
+  recordTrackingDiagnostic,
+  setSessionEndReason,
+} from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { AuthUser } from '@/types/auth';
 import type { StoredTrackingSession, TrackingSession } from '@/types/tracking';
+import type { TrackingSessionEndReason } from '@/types/trackingDiagnostics';
 
 function normId(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -56,10 +61,20 @@ export function isTrackingSessionForbiddenOrNotFound(error: unknown): boolean {
   return status === 403 || status === 404;
 }
 
+function mapCleanupToEndReason(reason: string): TrackingSessionEndReason {
+  if (reason.includes('session_not_active')) return 'session_not_active';
+  if (reason === 'capture_closed') return 'user';
+  if (reason === 'owner_mismatch' || reason.startsWith('remote_')) return 'cleanup';
+  return 'cleanup';
+}
+
 export async function cleanupLocalTrackingSession(reason: string): Promise<void> {
   if (__DEV__) {
     console.log('[tracking-cleanup-local]', { reason });
   }
+  const endReason = mapCleanupToEndReason(reason);
+  await setSessionEndReason(endReason);
+  recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
   await stopOperatorTrackingAsync();
   await trackingSessionStorage.clearActive();
 }

@@ -149,6 +149,14 @@ export default function CapturaLogisticaScreen() {
         </AppText>
       </Pressable>
 
+      <Pressable
+        style={styles.linkBtnSecondary}
+        onPress={() => router.push('/captura-logistica/diagnostico' as Href)}>
+        <AppText variant="bodyMedium" color={colors.primary}>
+          Diagnóstico de captura
+        </AppText>
+      </Pressable>
+
       {isActive && storedSession?.sessionId ? (
         <Pressable
           style={styles.linkBtnSecondary}

@@ -4,6 +4,7 @@ import { Alert, Platform } from 'react-native';
 
 import { BACKGROUND_LOCATION_TASK_NAME } from '@/services/backgroundLocationTask';
 import { OPERATOR_TRACKING_TASK_NAME } from '@/services/operatorTrackingTask';
+import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 
 const TIME_INTERVAL_MS = 20000;
@@ -136,8 +137,24 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
     if (__DEV__) {
       console.log('[operator-bg-start]', { started, task: OPERATOR_TRACKING_TASK_NAME });
     }
+    if (started) {
+      recordTrackingDiagnostic(
+        'bg-task-start',
+        {
+          fgServiceStarted: true,
+          taskManagerStarted: true,
+          task: OPERATOR_TRACKING_TASK_NAME,
+        },
+        stored.sessionId,
+      );
+    }
     return started;
   } catch (error) {
+    recordTrackingDiagnostic(
+      'bg-task-error',
+      { error: String(error), task: OPERATOR_TRACKING_TASK_NAME },
+      stored.sessionId,
+    );
     console.warn('[operator-bg-start]', { error });
     return false;
   }
@@ -170,6 +187,12 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
 
   try {
     await Location.stopLocationUpdatesAsync(OPERATOR_TRACKING_TASK_NAME);
+    const stored = await trackingSessionStorage.getActive();
+    recordTrackingDiagnostic(
+      'bg-task-stop',
+      { fgServiceStarted: false, taskManagerStarted: false },
+      stored?.sessionId,
+    );
     if (__DEV__) {
       console.log('[operator-bg-stop]', { stopped: true });
     }
@@ -192,5 +215,13 @@ export async function ensureOperatorBackgroundTracking(): Promise<boolean> {
   if (await isOperatorTrackingStartedAsync()) {
     return true;
   }
-  return startOperatorTrackingAsync();
+  const restored = await startOperatorTrackingAsync();
+  if (restored) {
+    recordTrackingDiagnostic(
+      'bg-task-restored',
+      { fgServiceStarted: true, taskManagerStarted: true },
+      stored.sessionId,
+    );
+  }
+  return restored;
 }

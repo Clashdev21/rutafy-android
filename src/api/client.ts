@@ -4,6 +4,7 @@ import { AUTH_ENDPOINTS } from '@/api/endpoints';
 import { sessionEvents } from '@/auth/sessionEvents';
 import { tokenStorage } from '@/auth/tokenStorage';
 import { API_BASE_URL } from '@/config/env';
+import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import type { RefreshTokenResponse } from '@/types/auth';
 import {
   isConfirmedAuthInvalidError,
@@ -87,8 +88,11 @@ async function refreshAccessTokenShared(): Promise<RefreshAccessTokenResult> {
           if (__DEV__) {
             console.log('[auth-refresh-failed]', { reason: 'missing_refresh_token' });
           }
+          recordTrackingDiagnostic('refresh-failed', { reason: 'missing_refresh_token' });
           return { status: 'auth_invalid' };
         }
+
+        recordTrackingDiagnostic('refresh-start', {});
 
         if (__DEV__) {
           console.log('[auth-refresh-start]');
@@ -102,6 +106,7 @@ async function refreshAccessTokenShared(): Promise<RefreshAccessTokenResult> {
         if (typeof at === 'string' && at.trim()) {
           const trimmed = at.trim();
           await tokenStorage.setAccessToken(trimmed);
+          recordTrackingDiagnostic('refresh-success', {});
           if (__DEV__) {
             console.log('[auth-refresh-success]');
           }
@@ -111,6 +116,7 @@ async function refreshAccessTokenShared(): Promise<RefreshAccessTokenResult> {
         if (__DEV__) {
           console.log('[auth-refresh-failed]', { reason: 'invalid_refresh_response' });
         }
+        recordTrackingDiagnostic('refresh-failed', { reason: 'invalid_refresh_response' });
         return { status: 'auth_invalid' };
       } catch (error) {
         if (isTransientNetworkError(error)) {
@@ -127,6 +133,10 @@ async function refreshAccessTokenShared(): Promise<RefreshAccessTokenResult> {
               status: axios.isAxiosError(error) ? error.response?.status : null,
             });
           }
+          recordTrackingDiagnostic('refresh-failed', {
+            reason: 'refresh_token_rejected',
+            status: axios.isAxiosError(error) ? error.response?.status : null,
+          });
           return { status: 'auth_invalid' };
         }
 
@@ -156,6 +166,15 @@ apiClient.interceptors.request.use(async (config) => {
 
   if (!isPublicAuthRoute(config)) {
     const token = await tokenStorage.getAccessToken();
+    const url = config.url ?? '';
+    if (url.includes('tracking-sessions')) {
+      recordTrackingDiagnostic('access-token-read', {
+        hasAccessToken: Boolean(token),
+        tokenLength: token?.length ?? 0,
+        channel: 'axios',
+        url,
+      });
+    }
     if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
