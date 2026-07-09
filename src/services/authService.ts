@@ -22,6 +22,19 @@ function pickRefreshToken(data: TokenPairResponse): string | null {
   return typeof token === 'string' && token.trim() ? token.trim() : null;
 }
 
+async function persistTokenPair(data: TokenPairResponse): Promise<void> {
+  const access = pickAccessToken(data);
+  if (!access) {
+    throw new Error('Respuesta sin access_token');
+  }
+  await tokenStorage.setTokens({
+    access_token: access,
+    refresh_token: pickRefreshToken(data) ?? undefined,
+    expires_at: data.expires_at ?? data.expiresAt,
+    expires_in: data.expires_in,
+  });
+}
+
 async function authErrorMessage(response: Response): Promise<string> {
   const fallback = `Error ${response.status}`;
   try {
@@ -59,16 +72,7 @@ export async function login(credentials: LoginCredentials): Promise<AuthUser> {
 
     const data = (await response.json()) as TokenPairResponse;
 
-    const access = pickAccessToken(data);
-    if (!access) {
-      throw new Error('Respuesta de login sin access_token');
-    }
-
-    await tokenStorage.setAccessToken(access);
-    const refresh = pickRefreshToken(data);
-    if (refresh) {
-      await tokenStorage.setRefreshToken(refresh);
-    }
+    await persistTokenPair(data);
 
     return fetchCurrentUser();
   } catch (error) {
@@ -131,16 +135,7 @@ export async function registerTransportista(
   }
 
   const data = (await response.json()) as TokenPairResponse;
-  const access = pickAccessToken(data);
-  if (!access) {
-    throw new Error('Respuesta de registro sin access_token');
-  }
-
-  await tokenStorage.setAccessToken(access);
-  const refresh = pickRefreshToken(data);
-  if (refresh) {
-    await tokenStorage.setRefreshToken(refresh);
-  }
+  await persistTokenPair(data);
 
   return fetchCurrentUser();
 }

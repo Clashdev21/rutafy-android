@@ -1,7 +1,7 @@
 import { type Href, router } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import {
@@ -9,6 +9,8 @@ import {
   setupNotificationHandler,
   type PushNotificationData,
 } from '@/services/notificationService';
+import { recordPushDiagnostic } from '@/services/pushDiagnostics';
+import { registerPushIfSessionReady } from '@/services/pushRegistration';
 import {
   clearPendingDispatchOfferIntent,
   setPendingDispatchOfferIntent,
@@ -46,6 +48,10 @@ function handleForegroundNotification(data: PushNotificationData): void {
     type: data.type ?? null,
     screen: data.screen ?? null,
   });
+  recordPushDiagnostic('push-listener-received', {
+    type: data.type ?? null,
+    screen: data.screen ?? null,
+  });
 
   if (data.type === 'test' && __DEV__) {
     Alert.alert('Notificación de prueba', 'Push recibida en primer plano.');
@@ -63,9 +69,21 @@ function handleNotificationResponse(data: PushNotificationData, deps: PushNaviga
     service_id: data.service_id ?? null,
     offer_id: data.offer_id ?? null,
   });
+  recordPushDiagnostic('push-listener-response', {
+    type: data.type ?? null,
+    screen: data.screen ?? null,
+    offerId: data.offer_id ?? null,
+    serviceId: data.service_id ?? null,
+  });
 
   if (data.type === 'dispatch_offer') {
     storeDispatchOfferIntent(data);
+    recordPushDiagnostic('push-navigation-intent', {
+      type: 'dispatch_offer',
+      screen: typeof data.screen === 'string' ? data.screen : '/mensajero',
+      offerId: data.offer_id ?? null,
+      serviceId: data.service_id ?? null,
+    });
     deps.queueNavigation(resolveMensajeroScreen(data));
     return;
   }
@@ -76,6 +94,10 @@ function handleNotificationResponse(data: PushNotificationData, deps: PushNaviga
   }
 
   logPush('[push-navigate]', { screen, type: data.type ?? null });
+  recordPushDiagnostic('push-navigation-intent', {
+    type: data.type ?? null,
+    screen,
+  });
   deps.queueNavigation(screen as Href);
 }
 
@@ -124,6 +146,16 @@ export function usePushNotifications(): void {
   useEffect(() => {
     flushPendingNavigation();
   }, [isLoading, isAuthenticated, user]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      const { isAuthenticated: authed, user: currentUser } = authReadyRef.current;
+      if (!authed || !currentUser) return;
+      void registerPushIfSessionReady(currentUser, 'app_foreground');
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     setupNotificationHandler();

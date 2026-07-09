@@ -1,32 +1,29 @@
+import { getValidAccessToken } from '@/auth/accessTokenManager';
 import { tokenStorage } from '@/auth/tokenStorage';
+import { canAttemptPushRegister, recordPushDiagnostic } from '@/services/pushDiagnostics';
 import {
   registerDevicePushTokenAsync,
   type RegisterDeviceOptions,
 } from '@/services/notificationService';
 import type { AuthUser } from '@/types/auth';
+import { derivePushActorType } from '@/utils/pushActorType';
+import { isAdminRole } from '@/utils/roles';
 
-export type PushRegisterSource = 'login' | 'restore_session' | 'register_transportista';
+export type PushRegisterSource =
+  | 'login'
+  | 'restore_session'
+  | 'register_transportista'
+  | 'app_foreground'
+  | 'manual_debug';
 
 const registerInFlightByActor = new Map<string, Promise<void>>();
 
 function pushRegisterLog(tag: string, detail?: Record<string, unknown>): void {
-  if (!__DEV__) return;
   if (detail && Object.keys(detail).length > 0) {
     console.log(tag, detail);
   } else {
     console.log(tag);
   }
-}
-
-function sessionGuardFields(user: AuthUser | null, accessToken: string | null) {
-  const actorId = user?.actor_id?.trim() ?? '';
-  const actorType = user?.actor_type?.trim() ?? '';
-  return {
-    hasAccessToken: Boolean(accessToken),
-    hasUser: Boolean(user),
-    actorId: actorId || null,
-    actorType: actorType || null,
-  };
 }
 
 /**
@@ -36,34 +33,94 @@ export async function registerPushIfSessionReady(
   user: AuthUser | null,
   source: PushRegisterSource,
 ): Promise<void> {
-  const accessToken = await tokenStorage.getAccessToken();
-  const fields = sessionGuardFields(user, accessToken);
-
-  if (!fields.hasAccessToken || !fields.hasUser || !fields.actorId || !fields.actorType) {
-    pushRegisterLog('[push-register-skip-no-session]', { ...fields, source });
+  if (!user || isAdminRole(user.appRole)) {
+    recordPushDiagnostic('push-register-skip-no-session', {
+      reason: 'no_user_or_admin',
+      source,
+    });
     return;
   }
 
-  const actorId = fields.actorId;
+  const actorId = user.actor_id?.trim() ?? '';
+  const actorType = derivePushActorType(user);
+
+  if (!actorId) {
+    recordPushDiagnostic('push-register-skip-no-session', {
+      reason: 'missing_actor_id',
+      source,
+      actorType,
+    });
+    pushRegisterLog('[push-register-skip-no-session]', { reason: 'missing_actor_id', source });
+    return;
+  }
+
+  if (!actorType) {
+    recordPushDiagnostic('push-register-skip-no-session', {
+      reason: 'missing_actor_type',
+      source,
+      actorId,
+      appRole: user.appRole,
+    });
+    pushRegisterLog('[push-register-skip-no-session]', {
+      reason: 'missing_actor_type',
+      source,
+      actorId,
+      appRole: user.appRole,
+    });
+    return;
+  }
+
+  const allowed = await canAttemptPushRegister(source);
+  if (!allowed) {
+    pushRegisterLog('[push-register-skip-no-session]', {
+      reason: 'throttled',
+      source,
+      actorId,
+      actorType,
+    });
+    return;
+  }
+
+  const refresh = await tokenStorage.getRefreshToken();
+  const accessToken = await getValidAccessToken({ source: `push_${source}` });
+  if (!accessToken && !refresh) {
+    recordPushDiagnostic('push-register-skip-no-session', {
+      reason: 'no_session_tokens',
+      source,
+      actorId,
+      actorType,
+    });
+    pushRegisterLog('[push-register-skip-no-session]', {
+      reason: 'no_session_tokens',
+      source,
+      actorId,
+      actorType,
+    });
+    return;
+  }
+
   const inFlight = registerInFlightByActor.get(actorId);
   if (inFlight) {
     pushRegisterLog('[push-register-skip-no-session]', {
-      ...fields,
-      source,
       reason: 'register_in_flight',
+      source,
+      actorId,
+      actorType,
     });
     return inFlight;
   }
 
   pushRegisterLog('[push-register-session-ready]', {
-    ...fields,
     source,
+    actorId,
+    actorType,
+    hasAccessToken: Boolean(accessToken),
   });
 
   const options: RegisterDeviceOptions = {
     source,
     actorId,
-    actorType: fields.actorType,
+    actorType,
   };
 
   const registration = registerDevicePushTokenAsync(options).finally(() => {
@@ -72,4 +129,8 @@ export async function registerPushIfSessionReady(
 
   registerInFlightByActor.set(actorId, registration);
   return registration;
+}
+
+export async function retryPushRegistrationManual(user: AuthUser | null): Promise<void> {
+  return registerPushIfSessionReady(user, 'manual_debug');
 }

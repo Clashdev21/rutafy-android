@@ -2,6 +2,7 @@ import { type Href, router } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
+import { PushDiagnosticsPanel } from '@/components/notifications/PushDiagnosticsPanel';
 import { RutafyCuentaScreen } from '@/components/account/RutafyCuentaScreen';
 import { RutafyCard } from '@/components/rutafy/RutafyCard';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
@@ -59,6 +60,8 @@ export default function MensajeroCuentaScreen() {
           <Text style={styles.linkBtnText}>Historial de capturas</Text>
         </Pressable>
       </RutafyCard>
+
+      <PushDiagnosticsPanel />
     </RutafyCuentaScreen>
   );
 }

@@ -33,6 +33,12 @@ export function isTransientNetworkError(error: unknown): boolean {
   return false;
 }
 
+export function isTransientServerError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const status = error.response?.status;
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
 export function isConfirmedAuthInvalidError(error: unknown): boolean {
   if (!axios.isAxiosError(error)) return false;
   const status = error.response?.status;

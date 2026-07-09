@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 
+import { getValidAccessToken } from '@/auth/accessTokenManager';
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext';
 import { sessionEvents } from '@/auth/sessionEvents';
 import { tokenStorage } from '@/auth/tokenStorage';
@@ -16,6 +17,7 @@ import { getApiErrorMessage } from '@/utils/errors';
 import {
   isConfirmedAuthInvalidError,
   isTransientNetworkError,
+  isTransientServerError,
   NETWORK_UNAVAILABLE_MESSAGE,
 } from '@/utils/networkErrors';
 import { isAdminRole, isMobileSupportedRole } from '@/utils/roles';
@@ -35,9 +37,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [hasPersistedSession, setHasPersistedSession] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshSessionInFlightRef = useRef<Promise<void> | null>(null);
 
   const clearLocalSession = useCallback(async (reason: string, detail?: unknown) => {
     logLogoutReason(reason, detail);
+    if (__DEV__) {
+      console.log('[auth-session-expired-confirmed]', { reason, detail });
+    }
     await tokenStorage.clearAll();
     setUser(null);
     setHasPersistedSession(false);
@@ -45,60 +51,97 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const refreshSession = useCallback(async () => {
-    const access = await tokenStorage.getAccessToken();
-    if (!access) {
-      setUser(null);
-      setHasPersistedSession(false);
-      setError(null);
-      setIsLoading(false);
-      return;
+    if (refreshSessionInFlightRef.current) {
+      return refreshSessionInFlightRef.current;
     }
 
-    setHasPersistedSession(true);
-    setIsLoading(true);
-    try {
-      const me = await authService.fetchCurrentUser();
-      if (!me.actor_id?.trim() || !isMobileSupportedRole(me.appRole)) {
-        throw new Error('Sesión sin actor operativo válido');
-      }
-      if (isAdminRole(me.appRole)) {
-        await authService.logout();
+    const run = (async () => {
+      const access = await tokenStorage.getAccessToken();
+      const refresh = await tokenStorage.getRefreshToken();
+
+      if (!access && !refresh) {
         setUser(null);
         setHasPersistedSession(false);
-        setError('Las cuentas de administrador solo están disponibles en la web.');
+        setError(null);
+        setIsLoading(false);
         return;
       }
-      if (!isMobileSupportedRole(me.appRole)) {
-        await authService.logout();
-        setUser(null);
-        setHasPersistedSession(false);
-        setError('Este tipo de cuenta no está disponible en la app móvil.');
-        return;
-      }
-      setUser(me);
-      setError(null);
-      void registerPushIfSessionReady(me, 'restore_session');
-    } catch (e) {
-      if (isTransientNetworkError(e)) {
-        if (__DEV__) {
-          console.log('[auth-network-error]', { context: 'refresh_session' });
+
+      setHasPersistedSession(true);
+      setIsLoading(true);
+
+      try {
+        if (!access && refresh) {
+          const recovered = await getValidAccessToken({
+            forceRefresh: true,
+            source: 'restore',
+          });
+          if (!recovered) {
+            const stillHasRefresh = await tokenStorage.getRefreshToken();
+            if (!stillHasRefresh) {
+              await clearLocalSession('refresh_session_auth_invalid');
+              setError('Sesión expirada. Inicia sesión de nuevo.');
+            } else {
+              if (__DEV__) {
+                console.log('[auth-session-preserved-network-error]', {
+                  context: 'restore_without_access',
+                });
+              }
+              setError(NETWORK_UNAVAILABLE_MESSAGE);
+            }
+            return;
+          }
         }
-        setError(NETWORK_UNAVAILABLE_MESSAGE);
-        return;
-      }
 
-      if (isConfirmedAuthInvalidError(e)) {
-        await clearLocalSession('refresh_session_auth_invalid');
-        setError(getApiErrorMessage(e, 'Sesión expirada. Inicia sesión de nuevo.'));
-        return;
-      }
+        const me = await authService.fetchCurrentUser();
+        if (!me.actor_id?.trim() || !isMobileSupportedRole(me.appRole)) {
+          throw new Error('Sesión sin actor operativo válido');
+        }
+        if (isAdminRole(me.appRole)) {
+          await authService.logout();
+          setUser(null);
+          setHasPersistedSession(false);
+          setError('Las cuentas de administrador solo están disponibles en la web.');
+          return;
+        }
+        if (!isMobileSupportedRole(me.appRole)) {
+          await authService.logout();
+          setUser(null);
+          setHasPersistedSession(false);
+          setError('Este tipo de cuenta no está disponible en la app móvil.');
+          return;
+        }
+        setUser(me);
+        setError(null);
+        void registerPushIfSessionReady(me, 'restore_session');
+      } catch (e) {
+        if (isTransientNetworkError(e) || isTransientServerError(e)) {
+          if (__DEV__) {
+            console.log('[auth-session-preserved-network-error]', { context: 'refresh_session' });
+          }
+          setHasPersistedSession(true);
+          setError(NETWORK_UNAVAILABLE_MESSAGE);
+          return;
+        }
 
-      await clearLocalSession('refresh_session_validation_failed', {
-        message: getApiErrorMessage(e, 'No se pudo validar la sesión'),
-      });
-      setError(getApiErrorMessage(e, 'No se pudo validar la sesión'));
+        if (isConfirmedAuthInvalidError(e)) {
+          await clearLocalSession('refresh_session_auth_invalid');
+          setError(getApiErrorMessage(e, 'Sesión expirada. Inicia sesión de nuevo.'));
+          return;
+        }
+
+        setHasPersistedSession(true);
+        setError(getApiErrorMessage(e, 'No se pudo validar la sesión'));
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+
+    refreshSessionInFlightRef.current = run;
+    try {
+      await run;
     } finally {
-      setIsLoading(false);
+      refreshSessionInFlightRef.current = null;
     }
   }, [clearLocalSession]);
 
@@ -110,6 +153,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return sessionEvents.onSessionExpired(() => {
       void (async () => {
         logLogoutReason('session_expired_event');
+        if (__DEV__) {
+          console.log('[auth-session-expired-confirmed]', { reason: 'session_expired_event' });
+        }
         await tokenStorage.clearAll();
         setUser(null);
         setHasPersistedSession(false);

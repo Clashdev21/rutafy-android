@@ -2,7 +2,10 @@ import { fetch as expoFetch } from 'expo/fetch';
 import * as TaskManager from 'expo-task-manager';
 
 import { TRACKING_SESSION_ENDPOINTS } from '@/api/endpoints';
-import { tokenStorage } from '@/auth/tokenStorage';
+import {
+  getValidAccessToken,
+  refreshAccessTokenWithOutcome,
+} from '@/auth/accessTokenManager';
 import { API_BASE_URL } from '@/config/env';
 import {
   isOperatorTrackingStartedAsync,
@@ -77,38 +80,15 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
   await trackingSessionStorage.clearActive();
 }
 
-async function postPointsBatch(sessionId: string, points: TrackingPointInput[]): Promise<number> {
-  const startedAt = Date.now();
-  recordTrackingDiagnostic(
-    'batch-created',
-    { pointCount: points.length, channel: 'background' },
-    sessionId,
-  );
-
-  const token = await tokenStorage.getAccessToken();
-  recordTrackingDiagnostic(
-    'access-token-read',
-    {
-      hasAccessToken: Boolean(token),
-      tokenLength: token?.length ?? 0,
-      channel: 'background',
-    },
-    sessionId,
-  );
-  if (!token) {
-    recordBatchHttpError(401, sessionId, {
-      channel: 'background',
-      latencyMs: Date.now() - startedAt,
-    });
-    throw new Error('401');
-  }
-
-  recordTrackingDiagnostic(
-    'batch-send',
-    { pointCount: points.length, channel: 'background' },
-    sessionId,
-  );
-
+async function executeBatchPost(
+  sessionId: string,
+  points: TrackingPointInput[],
+  token: string,
+  startedAt: number,
+): Promise<
+  | { ok: true; accepted: number; latencyMs: number; status: number }
+  | { ok: false; status: number; detail: string; latencyMs: number; parsed: Record<string, unknown> | null }
+> {
   const path = TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId);
   let response: Response;
   try {
@@ -152,18 +132,13 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
         : typeof parsed?.message === 'string'
           ? parsed.message
           : `HTTP ${response.status}`;
-    if (isSessionNotActiveResponse(response.status, parsed, detail)) {
-      throw new Error('session_not_active');
-    }
-    const status = response.status;
-    recordBatchHttpError(status, sessionId, {
-      channel: 'background',
-      status,
+    return {
+      ok: false,
+      status: response.status,
+      detail,
       latencyMs,
-      pointCount: points.length,
-      error: detail,
-    });
-    throw new Error(String(status) === '401' ? '401' : detail);
+      parsed,
+    };
   }
 
   const accepted =
@@ -173,9 +148,19 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
         ? parsed.accepted_count
         : points.length;
 
+  return { ok: true, accepted, latencyMs, status: response.status };
+}
+
+function recordBatchSuccess(
+  sessionId: string,
+  points: TrackingPointInput[],
+  latencyMs: number,
+  status: number,
+  accepted: number,
+): void {
   recordTrackingDiagnostic(
     'batch-success',
-    { channel: 'background', status: response.status, latencyMs, pointCount: points.length },
+    { channel: 'background', status, latencyMs, pointCount: points.length },
     sessionId,
   );
   recordTrackingDiagnostic(
@@ -183,7 +168,83 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
     { channel: 'background', accepted, latencyMs },
     sessionId,
   );
-  return accepted;
+}
+
+async function postPointsBatch(sessionId: string, points: TrackingPointInput[]): Promise<number> {
+  const startedAt = Date.now();
+  recordTrackingDiagnostic(
+    'batch-created',
+    { pointCount: points.length, channel: 'background' },
+    sessionId,
+  );
+
+  let token = await getValidAccessToken({ source: 'operator_tracking_bg' });
+  if (!token) {
+    recordBatchHttpError(401, sessionId, {
+      channel: 'background',
+      latencyMs: Date.now() - startedAt,
+      reason: 'no_valid_access_token',
+    });
+    throw new Error('401');
+  }
+
+  recordTrackingDiagnostic(
+    'batch-send',
+    { pointCount: points.length, channel: 'background' },
+    sessionId,
+  );
+
+  let result = await executeBatchPost(sessionId, points, token, startedAt);
+
+  if (!result.ok && result.status === 401) {
+    recordBatchHttpError(401, sessionId, {
+      channel: 'background',
+      status: 401,
+      latencyMs: result.latencyMs,
+      pointCount: points.length,
+      error: result.detail,
+      retry: true,
+    });
+
+    const refreshOutcome = await refreshAccessTokenWithOutcome({
+      source: 'operator_tracking_bg_401',
+    });
+
+    if (refreshOutcome.status === 'success') {
+      token = refreshOutcome.token;
+      recordTrackingDiagnostic(
+        'batch-send',
+        { pointCount: points.length, channel: 'background', retryAfter401: true },
+        sessionId,
+      );
+      result = await executeBatchPost(sessionId, points, token, startedAt);
+    } else if (refreshOutcome.status === 'auth_invalid') {
+      recordTrackingDiagnostic(
+        'refresh-failed',
+        { source: 'operator_tracking_bg_401', reason: 'auth_invalid' },
+        sessionId,
+      );
+    }
+  }
+
+  if (!result.ok) {
+    if (isSessionNotActiveResponse(result.status, result.parsed, result.detail)) {
+      throw new Error('session_not_active');
+    }
+    if (result.status !== 401) {
+      recordBatchHttpError(result.status, sessionId, {
+        channel: 'background',
+        status: result.status,
+        latencyMs: result.latencyMs,
+        pointCount: points.length,
+        error: result.detail,
+      });
+    }
+    throw new Error(String(result.status) === '401' ? '401' : result.detail);
+  }
+
+  recordBatchSuccess(sessionId, points, result.latencyMs, result.status, result.accepted);
+  return result.accepted;
 }
 
 if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {

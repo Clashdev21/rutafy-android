@@ -1,7 +1,7 @@
 import { fetch as expoFetch } from 'expo/fetch';
 import * as TaskManager from 'expo-task-manager';
 
-import { tokenStorage } from '@/auth/tokenStorage';
+import { getValidAccessToken } from '@/auth/accessTokenManager';
 import { API_BASE_URL } from '@/config/env';
 import { buildTraceId } from '@/utils/traceId';
 
@@ -41,7 +41,7 @@ async function sendBackgroundHeartbeat(lat: number, lng: number): Promise<void> 
   if (isSending) return;
   if (now - lastSentAt < THROTTLE_MS) return;
 
-  const token = await tokenStorage.getAccessToken();
+  const token = await getValidAccessToken({ source: 'mensajero_bg_heartbeat' });
   if (!token) return;
 
   isSending = true;

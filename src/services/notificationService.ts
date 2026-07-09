@@ -1,3 +1,4 @@
+import axios from 'axios';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
@@ -5,7 +6,13 @@ import { Platform } from 'react-native';
 
 import { apiClient } from '@/api/client';
 import { NOTIFICATION_ENDPOINTS } from '@/api/endpoints';
+import { getValidAccessToken } from '@/auth/accessTokenManager';
 import { tokenStorage } from '@/auth/tokenStorage';
+import {
+  isValidExpoPushTokenFormat,
+  recordPushDiagnostic,
+  tokenPrefix,
+} from '@/services/pushDiagnostics';
 import {
   clearStoredExpoPushToken,
   getOrCreateDeviceId,
@@ -21,6 +28,16 @@ export type RegisterDevicePayload = {
   platform: 'android' | 'ios' | 'web';
   environment: PushEnvironment;
   app_version: string;
+  build_number?: string | number | null;
+  metadata?: {
+    source: string;
+    device_brand?: string | null;
+    device_model?: string | null;
+    android_version?: string | null;
+    actor_id?: string | null;
+    actor_type?: string | null;
+    register_source?: string | null;
+  };
 };
 
 export type PushNotificationData = {
@@ -49,7 +66,7 @@ function pushLog(tag: string, detail?: Record<string, unknown>): void {
   }
 }
 
-function resolveProjectId(): string | null {
+export function resolvePushProjectId(): string | null {
   const fromExtra = Constants.expoConfig?.extra?.eas?.projectId;
   if (typeof fromExtra === 'string' && fromExtra.trim()) {
     return fromExtra.trim();
@@ -65,6 +82,18 @@ function resolveAppVersion(): string {
   return Constants.expoConfig?.version?.trim() || '1.0.0';
 }
 
+function resolveBuildNumber(): string | number | null {
+  const fromAndroid = Constants.expoConfig?.android?.versionCode;
+  if (typeof fromAndroid === 'number' && Number.isFinite(fromAndroid)) {
+    return fromAndroid;
+  }
+  const native = Constants.nativeBuildVersion;
+  if (native != null && String(native).trim()) {
+    return String(native).trim();
+  }
+  return null;
+}
+
 function resolvePlatform(): RegisterDevicePayload['platform'] {
   if (Platform.OS === 'android') return 'android';
   if (Platform.OS === 'ios') return 'ios';
@@ -73,6 +102,18 @@ function resolvePlatform(): RegisterDevicePayload['platform'] {
 
 function resolveEnvironment(): PushEnvironment {
   return __DEV__ ? 'development' : 'production';
+}
+
+function classifyRegisterHttpError(status: number | undefined): void {
+  if (status === 401) {
+    recordPushDiagnostic('push-register-401', { httpStatus: status });
+  } else if (status === 403) {
+    recordPushDiagnostic('push-register-403', { httpStatus: status });
+  } else if (status != null && status >= 500) {
+    recordPushDiagnostic('push-register-500', { httpStatus: status });
+  } else {
+    recordPushDiagnostic('push-register-error', { httpStatus: status ?? null });
+  }
 }
 
 export function setupNotificationHandler(): void {
@@ -90,55 +131,109 @@ export function setupNotificationHandler(): void {
   });
 }
 
+export async function getPushPermissionStatusAsync(): Promise<string> {
+  if (!Device.isDevice) return 'not_physical_device';
+  const current = await Notifications.getPermissionsAsync();
+  return current.status;
+}
+
 export async function requestPushPermissionsAsync(): Promise<boolean> {
+  recordPushDiagnostic('push-permission-start', { platform: Platform.OS });
+
   if (!Device.isDevice) {
     pushLog('[push-permission]', { granted: false, reason: 'not_physical_device' });
+    recordPushDiagnostic('push-permission-error', { reason: 'not_physical_device' });
     return false;
   }
 
-  const current = await Notifications.getPermissionsAsync();
-  if (current.granted) {
-    pushLog('[push-permission]', { granted: true, status: current.status });
-    return true;
-  }
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) {
+      pushLog('[push-permission]', { granted: true, status: current.status });
+      recordPushDiagnostic('push-permission-granted', { status: current.status });
+      return true;
+    }
 
-  const requested = await Notifications.requestPermissionsAsync();
-  const granted = requested.granted === true;
-  pushLog('[push-permission]', { granted, status: requested.status });
-  return granted;
+    if (current.status === 'undetermined') {
+      recordPushDiagnostic('push-permission-undetermined', {});
+    }
+
+    const requested = await Notifications.requestPermissionsAsync();
+    const granted = requested.granted === true;
+    pushLog('[push-permission]', { granted, status: requested.status });
+
+    if (granted) {
+      recordPushDiagnostic('push-permission-granted', { status: requested.status });
+    } else {
+      recordPushDiagnostic('push-permission-denied', { status: requested.status });
+    }
+
+    return granted;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    recordPushDiagnostic('push-permission-error', { errorMessage });
+    pushLog('[push-permission]', { granted: false, error: errorMessage });
+    return false;
+  }
 }
 
 export async function getExpoPushTokenAsync(): Promise<string | null> {
+  recordPushDiagnostic('push-token-start', { platform: Platform.OS });
+
   if (!Device.isDevice) {
     pushLog('[push-token-error]', { reason: 'not_physical_device' });
+    recordPushDiagnostic('push-token-error', { reason: 'not_physical_device' });
     return null;
   }
 
-  const projectId = resolveProjectId();
+  const projectId = resolvePushProjectId();
   if (!projectId) {
     pushLog('[push-token-error]', { reason: 'missing_project_id' });
+    recordPushDiagnostic('push-project-id-missing', {});
+    recordPushDiagnostic('push-token-error', { reason: 'missing_project_id' });
     return null;
   }
+
+  recordPushDiagnostic('push-project-id-resolved', {
+    projectIdPrefix: `${projectId.slice(0, 8)}…`,
+  });
 
   try {
     const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenResult.data?.trim() || null;
-    if (token) {
-      pushLog('[push-token]', { prefix: `${token.slice(0, 24)}…` });
-    } else {
+
+    if (!token) {
       pushLog('[push-token-error]', { reason: 'empty_token' });
+      recordPushDiagnostic('push-token-error', { reason: 'empty_token' });
+      return null;
     }
+
+    if (!isValidExpoPushTokenFormat(token)) {
+      pushLog('[push-token-error]', { reason: 'invalid_format', prefix: tokenPrefix(token) });
+      recordPushDiagnostic('push-token-invalid-format', {
+        tokenPrefix: tokenPrefix(token),
+        tokenLength: token.length,
+      });
+      return null;
+    }
+
+    pushLog('[push-token]', { prefix: tokenPrefix(token) });
+    recordPushDiagnostic('push-token-success', {
+      tokenPrefix: tokenPrefix(token),
+      tokenLength: token.length,
+    });
     return token;
   } catch (error) {
-    pushLog('[push-token-error]', {
-      message: error instanceof Error ? error.message : String(error),
-    });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    pushLog('[push-token-error]', { message: errorMessage });
+    recordPushDiagnostic('push-token-error', { errorMessage });
     return null;
   }
 }
 
 async function buildRegisterPayload(
   expoPushToken: string,
+  options: RegisterDeviceOptions,
 ): Promise<RegisterDevicePayload> {
   return {
     expo_push_token: expoPushToken,
@@ -146,7 +241,95 @@ async function buildRegisterPayload(
     platform: resolvePlatform(),
     environment: resolveEnvironment(),
     app_version: resolveAppVersion(),
+    build_number: resolveBuildNumber(),
+    metadata: {
+      source: 'rutafy_android',
+      device_brand: Device.brand ?? null,
+      device_model: Device.modelName ?? null,
+      android_version: Device.osVersion ?? null,
+      actor_id: options.actorId ?? null,
+      actor_type: options.actorType ?? null,
+      register_source: options.source ?? null,
+    },
   };
+}
+
+async function postRegisterDevice(
+  payload: RegisterDevicePayload,
+): Promise<{ httpStatus: number }> {
+  const response = await apiClient.post(NOTIFICATION_ENDPOINTS.registerDevice, payload);
+  return { httpStatus: response.status };
+}
+
+async function registerWithOptional401Retry(
+  payload: RegisterDevicePayload,
+  source: string | null | undefined,
+): Promise<void> {
+  try {
+    const result = await postRegisterDevice(payload);
+    recordPushDiagnostic('push-register-success', {
+      httpStatus: result.httpStatus,
+      deviceId: payload.device_id,
+      platform: payload.platform,
+      environment: payload.environment,
+      source: source ?? null,
+    });
+    pushLog('[push-register-success]', {
+      device_id: payload.device_id,
+      source: source ?? null,
+      httpStatus: result.httpStatus,
+    });
+  } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (status === 401) {
+      recordPushDiagnostic('push-register-401', { httpStatus: status, source: source ?? null });
+      const refreshed = await getValidAccessToken({
+        forceRefresh: true,
+        source: 'push_register_401',
+      });
+      if (refreshed) {
+        try {
+          const retry = await postRegisterDevice(payload);
+          recordPushDiagnostic('push-register-success', {
+            httpStatus: retry.httpStatus,
+            deviceId: payload.device_id,
+            retriedAfter401: true,
+            source: source ?? null,
+          });
+          pushLog('[push-register-success]', {
+            device_id: payload.device_id,
+            source: source ?? null,
+            retriedAfter401: true,
+          });
+          return;
+        } catch (retryError) {
+          const retryStatus = axios.isAxiosError(retryError)
+            ? retryError.response?.status
+            : undefined;
+          const retryMessage =
+            retryError instanceof Error ? retryError.message : String(retryError);
+          classifyRegisterHttpError(retryStatus);
+          recordPushDiagnostic('push-register-error', {
+            httpStatus: retryStatus ?? null,
+            errorMessage: retryMessage,
+            source: source ?? null,
+          });
+          pushLog('[push-register-error]', { message: retryMessage, source: source ?? null });
+          return;
+        }
+      }
+    }
+
+    classifyRegisterHttpError(status);
+    recordPushDiagnostic('push-register-error', {
+      httpStatus: status ?? null,
+      errorMessage,
+      source: source ?? null,
+    });
+    pushLog('[push-register-error]', { message: errorMessage, source: source ?? null });
+  }
 }
 
 export async function registerDevicePushTokenAsync(
@@ -160,6 +343,52 @@ export async function registerDevicePushTokenAsync(
 
   registerDeviceInFlight = (async () => {
     try {
+      const accessToken = await getValidAccessToken({ source: 'push_register' });
+      const refresh = await tokenStorage.getRefreshToken();
+      if (!accessToken && !refresh) {
+        recordPushDiagnostic('push-register-skip-no-session', {
+          reason: 'no_session',
+          source: source ?? null,
+          hasAccessToken: false,
+          actorId,
+          actorType,
+        });
+        pushLog('[push-register-skip-no-session]', {
+          reason: 'no_session',
+          source: source ?? null,
+        });
+        return;
+      }
+      if (!accessToken) {
+        recordPushDiagnostic('push-register-skip-no-session', {
+          reason: 'no_valid_access_token',
+          source: source ?? null,
+          hasAccessToken: false,
+          actorId,
+          actorType,
+        });
+        pushLog('[push-register-skip-no-session]', {
+          reason: 'no_valid_access_token',
+          source: source ?? null,
+        });
+        return;
+      }
+
+      recordPushDiagnostic('push-register-start', {
+        source: source ?? null,
+        actorId,
+        actorType,
+        hasAccessToken: true,
+        platform: resolvePlatform(),
+        environment: resolveEnvironment(),
+        appVersion: resolveAppVersion(),
+      });
+      pushLog('[push-register-start]', {
+        source: source ?? null,
+        actorId,
+        actorType,
+      });
+
       const granted = await requestPushPermissionsAsync();
       if (!granted) {
         return;
@@ -170,43 +399,23 @@ export async function registerDevicePushTokenAsync(
         return;
       }
 
-      const accessToken = await tokenStorage.getAccessToken();
-      if (!accessToken) {
-        pushLog('[push-register-skip-no-session]', {
-          reason: 'no_token_at_post',
-          source: source ?? null,
-          hasAccessToken: false,
-          hasUser: null,
-          actorId,
-          actorType,
-        });
-        return;
-      }
-
       await saveExpoPushToken(expoPushToken);
-      const payload = await buildRegisterPayload(expoPushToken);
+      const payload = await buildRegisterPayload(expoPushToken, options);
 
-      pushLog('[push-register-start]', {
-        device_id: payload.device_id,
+      recordPushDiagnostic('push-register-payload', {
+        tokenPrefix: tokenPrefix(expoPushToken),
+        tokenLength: expoPushToken.length,
+        deviceId: payload.device_id,
         platform: payload.platform,
         environment: payload.environment,
-        source: source ?? null,
-        hasAccessToken: true,
+        appVersion: payload.app_version,
+        buildNumber: payload.build_number ?? null,
         actorId,
         actorType,
-      });
-
-      await apiClient.post(NOTIFICATION_ENDPOINTS.registerDevice, payload);
-
-      pushLog('[push-register-success]', {
-        device_id: payload.device_id,
         source: source ?? null,
       });
-    } catch (error) {
-      pushLog('[push-register-error]', {
-        message: error instanceof Error ? error.message : String(error),
-        source: source ?? null,
-      });
+
+      await registerWithOptional401Retry(payload, source);
     } finally {
       registerDeviceInFlight = null;
     }
@@ -221,8 +430,16 @@ export async function unregisterDevicePushTokenAsync(): Promise<void> {
     return;
   }
 
+  const accessToken = await getValidAccessToken({ source: 'push_unregister' });
+  if (!accessToken) {
+    pushLog('[push-unregister-skip-no-session]', { reason: 'no_valid_access_token' });
+    await clearStoredExpoPushToken();
+    return;
+  }
+
   try {
     const deviceId = await getOrCreateDeviceId();
+    recordPushDiagnostic('push-unregister-start', { deviceId });
     pushLog('[push-unregister-start]', { device_id: deviceId });
 
     await apiClient.post(NOTIFICATION_ENDPOINTS.unregisterDevice, {
@@ -230,11 +447,12 @@ export async function unregisterDevicePushTokenAsync(): Promise<void> {
       device_id: deviceId,
     });
 
+    recordPushDiagnostic('push-unregister-success', { deviceId });
     pushLog('[push-unregister-ok]', { device_id: deviceId });
   } catch (error) {
-    pushLog('[push-unregister-error]', {
-      message: error instanceof Error ? error.message : String(error),
-    });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    recordPushDiagnostic('push-unregister-error', { errorMessage });
+    pushLog('[push-unregister-error]', { message: errorMessage });
   } finally {
     await clearStoredExpoPushToken();
   }

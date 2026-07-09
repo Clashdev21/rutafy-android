@@ -39,9 +39,17 @@ export type TokenPairResponse = {
   accessToken?: string;
   refresh_token?: string;
   refreshToken?: string;
+  expires_at?: string | number;
+  expiresAt?: string | number;
+  expires_in?: number;
 };
 
 export type RefreshTokenResponse = {
   access_token?: string;
   accessToken?: string;
+  refresh_token?: string;
+  refreshToken?: string;
+  expires_at?: string | number;
+  expiresAt?: string | number;
+  expires_in?: number;
 };

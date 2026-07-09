@@ -2,7 +2,7 @@ import { File } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
 
 import { API_BASE_URL } from '@/config/env';
-import { tokenStorage } from '@/auth/tokenStorage';
+import { getValidAccessToken } from '@/auth/accessTokenManager';
 import { SERVICE_ENDPOINTS } from '@/api/endpoints';
 import { buildTraceId } from '@/utils/traceId';
 
@@ -54,7 +54,7 @@ export async function uploadServiceEvidence(params: {
     const validation = validateEvidenceAsset(params.asset);
     if (validation) throw new Error(validation);
 
-    const token = await tokenStorage.getAccessToken();
+    const token = await getValidAccessToken({ source: 'evidence_upload' });
     if (!token) {
       throw new Error('Sesión expirada. Inicia sesión de nuevo.');
     }

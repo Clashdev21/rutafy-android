@@ -211,7 +211,7 @@ POST /v1/notifications/devices/register    200
 
 Nunca `POST /devices/register` sin Bearer válido.
 
-### Payload register (estructura)
+### Payload register (estructura Sprint Push 2A)
 
 ```json
 {
@@ -219,7 +219,17 @@ Nunca `POST /devices/register` sin Bearer válido.
   "device_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "platform": "android",
   "environment": "development",
-  "app_version": "1.0.0"
+  "app_version": "1.0.0",
+  "build_number": 12,
+  "metadata": {
+    "source": "rutafy_android",
+    "device_brand": "samsung",
+    "device_model": "SM-G991B",
+    "android_version": "14",
+    "actor_id": "…",
+    "actor_type": "messenger",
+    "register_source": "login"
+  }
 }
 ```
 
@@ -227,7 +237,34 @@ Nunca `POST /devices/register` sin Bearer válido.
 |-------|--------|
 | `environment` | `__DEV__ ? "development" : "production"` |
 | `app_version` | `Constants.expoConfig.version` |
+| `build_number` | `android.versionCode` o `nativeBuildVersion` |
+| `metadata.actor_type` | `derivePushActorType(user)` si `/me` no trae `actor_type` |
 | `platform` | `Platform.OS` |
+
+**Validación de token:** solo se registra si cumple `ExpoPushToken[…]` o `ExponentPushToken[…]`. Nunca `FAKE_TOKEN`.
+
+**actor_type derivado:**
+
+| `appRole` / valor | `actor_type` enviado en metadata |
+|-------------------|----------------------------------|
+| MENSAJERO | `messenger` |
+| TRANSPORTISTA | `transporter` |
+| ADMIN | no registra en móvil |
+
+### Reintentos controlados
+
+| Trigger | `source` | Throttle |
+|---------|----------|----------|
+| Login | `login` | máx. 1 cada 5 min |
+| Restore sesión | `restore_session` | máx. 1 cada 5 min |
+| App foreground | `app_foreground` | máx. 1 cada 5 min |
+| Botón debug | `manual_debug` | sin throttle |
+
+Estado persistido en AsyncStorage (`rutafy_push_diag_state`): `lastPushRegisterAttemptAt`, `lastPushRegisterSuccessAt`, `lastPushRegisterError`, `lastHttpStatus`.
+
+### Android 13+
+
+`POST_NOTIFICATIONS` declarado explícitamente en `app.json` → `android.permissions`. El plugin `expo-notifications` también lo añade en prebuild.
 
 ### Cuándo desregistrar
 
@@ -527,6 +564,69 @@ Push real en producción requiere credenciales Firebase configuradas en Expo/EAS
 
 ---
 
+## Diagnóstico push persistente (Sprint Push 2A)
+
+Archivos: `src/types/pushDiagnostics.ts`, `src/services/pushDiagnostics.ts`, `src/hooks/usePushDiagnostics.ts`.
+
+Ring buffer de **50 eventos** en AsyncStorage. Nunca guarda JWT ni token completo (solo `tokenPrefix`, `tokenLength`).
+
+### Eventos
+
+`push-permission-start|granted|denied|undetermined|error` · `push-project-id-missing|resolved` · `push-token-start|success|error|invalid-format` · `push-register-start|skip-no-session|payload|success|error|401|403|500` · `push-unregister-start|success|error` · `push-listener-received|response` · `push-navigation-intent`
+
+### UI debug
+
+Pantalla **Cuenta** (Mensajero / Transportista) → sección **Diagnóstico Push**:
+
+- Permiso, Project ID, token prefix, actor, último intento/éxito/error/HTTP
+- Botón **Reintentar registro push** → `registerPushIfSessionReady(user, 'manual_debug')`
+
+### Troubleshooting
+
+| Síntoma en VPS | Causa probable en app | Acción |
+|----------------|----------------------|--------|
+| `device_row_id = null`, `skipped` | Nunca hubo `POST /devices/register` OK | Revisar Diagnóstico Push tras login |
+| `push-register-skip-no-session` + `missing_actor_type` | `/me` sin `actor_type` (corregido: derivación por `appRole`) | Rebuild + login |
+| `push-permission-denied` | Usuario denegó notificaciones | Ajustes Android → Notificaciones → Rutafy |
+| `push-project-id-missing` | Build sin `extra.eas.projectId` | Verificar `app.json` + rebuild EAS |
+| `push-token-invalid-format` | Token vacío o fake | Device físico + FCM en Expo dashboard |
+| `push-register-401` sin success posterior | Access token vencido sin refresh | Ver Auth 1A + botón reintentar |
+
+### Validación SQL (VPS)
+
+```sql
+SELECT
+  actor_type,
+  actor_id,
+  platform,
+  environment,
+  enabled,
+  revoked_at,
+  last_seen_at,
+  left(expo_push_token, 40) AS token
+FROM notification_devices
+ORDER BY last_seen_at DESC;
+```
+
+Esperado tras login en APK real:
+
+- `platform = android`
+- `enabled = true`
+- `revoked_at IS NULL`
+- `expo_push_token` LIKE `ExponentPushToken[%]` OR `ExpoPushToken[%]`
+- `last_seen_at` reciente
+
+```sql
+SELECT delivery_id, event_type, status, device_row_id, error, created_at
+FROM notification_deliveries
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+Esperado: `device_row_id IS NOT NULL`, `status` distinto de `skipped` por falta de device.
+
+---
+
 ## Logs de diagnóstico
 
 | Tag | Momento |
@@ -541,20 +641,19 @@ Push real en producción requiere credenciales Firebase configuradas en Expo/EAS
 | `[push-received-foreground]` | App visible, push llegó |
 | `[push-response]` | Tap o cold start |
 | `[push-navigate]` | `router.push(screen)` |
+| Eventos AsyncStorage `push-*` | Diagnóstico persistente (release) |
 
 ---
 
 ## Prueba manual
 
-1. Build dev/preview con plugin notifications.
+1. Build EAS con plugin notifications + `POST_NOTIFICATIONS`.
 2. Login en **device físico** → aceptar permisos.
-3. Verificar device en backend (sin copiar token a Slack/issues).
-4. `POST /v1/admin/notifications/test` con payload `type: test`.
-5. Probar:
-   - App foreground → banner + log (+ Alert DEV).
-   - App background → tap → navegación.
-   - App killed → tap → cold start + navegación.
-6. Logout → device desregistrado.
+3. Abrir **Cuenta → Diagnóstico Push** → verificar Project ID OK, token prefix, último éxito.
+4. Si falla: **Reintentar registro push**.
+5. Verificar device en backend (SQL arriba).
+6. Disparar evento (`dispatch_offer`, etc.) y validar `notification_deliveries`.
+7. Logout → device desregistrado.
 
 ---
 
