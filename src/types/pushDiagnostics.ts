@@ -7,6 +7,7 @@ export type PushDiagnosticEventType =
   | 'push-project-id-missing'
   | 'push-project-id-resolved'
   | 'push-token-start'
+  | 'push-token-context'
   | 'push-token-success'
   | 'push-token-error'
   | 'push-token-invalid-format'
@@ -33,6 +34,25 @@ export interface PushDiagnosticEvent {
   detail?: PushDiagnosticDetail;
 }
 
+export interface PushTokenErrorSnapshot {
+  timestamp: string;
+  message: string | null;
+  name: string | null;
+  code: string | null;
+  stackPreview: string | null;
+  cause: string | null;
+  projectId: string | null;
+  hasProjectId: boolean;
+  appOwnership: string | null;
+  executionEnvironment: string | null;
+  deviceBrand: string | null;
+  deviceModel: string | null;
+  osVersion: string | null;
+  isDevice: boolean | null;
+  platform: string | null;
+  suggestion: string | null;
+}
+
 export interface PushDiagnosticState {
   lastPushRegisterAttemptAt: string | null;
   lastPushRegisterSuccessAt: string | null;
@@ -43,6 +63,7 @@ export interface PushDiagnosticState {
   lastProjectIdOk: boolean;
   lastActorId: string | null;
   lastActorType: string | null;
+  lastTokenError: PushTokenErrorSnapshot | null;
 }
 
 export const EMPTY_PUSH_DIAGNOSTIC_STATE: PushDiagnosticState = {
@@ -55,4 +76,5 @@ export const EMPTY_PUSH_DIAGNOSTIC_STATE: PushDiagnosticState = {
   lastProjectIdOk: false,
   lastActorId: null,
   lastActorType: null,
+  lastTokenError: null,
 };

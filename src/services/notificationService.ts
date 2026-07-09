@@ -19,6 +19,7 @@ import {
   getStoredExpoPushToken,
   saveExpoPushToken,
 } from '@/storage/pushTokenStorage';
+import { serializePushError } from '@/utils/serializePushError';
 
 export type PushEnvironment = 'development' | 'production';
 
@@ -180,21 +181,55 @@ export async function requestPushPermissionsAsync(): Promise<boolean> {
 export async function getExpoPushTokenAsync(): Promise<string | null> {
   recordPushDiagnostic('push-token-start', { platform: Platform.OS });
 
+  const projectId = resolvePushProjectId();
+  const easProjectId =
+    typeof Constants.expoConfig?.extra?.eas?.projectId === 'string'
+      ? Constants.expoConfig.extra.eas.projectId
+      : null;
+  const constantsProjectId =
+    typeof Constants.easConfig?.projectId === 'string' ? Constants.easConfig.projectId : null;
+
+  const context = {
+    projectId,
+    hasProjectId: Boolean(projectId),
+    appOwnership: Constants.appOwnership ?? null,
+    executionEnvironment: Constants.executionEnvironment ?? null,
+    expoConfigName: Constants.expoConfig?.name ?? null,
+    easProjectId,
+    constantsProjectId,
+    deviceBrand: Device.brand ?? null,
+    deviceManufacturer: Device.manufacturer ?? null,
+    deviceModel: Device.modelName ?? null,
+    osVersion: Device.osVersion ?? null,
+    isDevice: Device.isDevice,
+    platform: Platform.OS,
+  };
+
+  recordPushDiagnostic('push-token-context', context);
+
   if (!Device.isDevice) {
     pushLog('[push-token-error]', { reason: 'not_physical_device' });
-    recordPushDiagnostic('push-token-error', { reason: 'not_physical_device' });
+    recordPushDiagnostic('push-token-error', {
+      reason: 'not_physical_device',
+      message: 'Expo Push Token requires a physical device',
+      ...context,
+    });
     return null;
   }
 
-  const projectId = resolvePushProjectId();
   if (!projectId) {
     pushLog('[push-token-error]', { reason: 'missing_project_id' });
-    recordPushDiagnostic('push-project-id-missing', {});
-    recordPushDiagnostic('push-token-error', { reason: 'missing_project_id' });
+    recordPushDiagnostic('push-project-id-missing', context);
+    recordPushDiagnostic('push-token-error', {
+      reason: 'missing_project_id',
+      message: 'Missing Expo/EAS projectId',
+      ...context,
+    });
     return null;
   }
 
   recordPushDiagnostic('push-project-id-resolved', {
+    projectId,
     projectIdPrefix: `${projectId.slice(0, 8)}…`,
   });
 
@@ -204,7 +239,11 @@ export async function getExpoPushTokenAsync(): Promise<string | null> {
 
     if (!token) {
       pushLog('[push-token-error]', { reason: 'empty_token' });
-      recordPushDiagnostic('push-token-error', { reason: 'empty_token' });
+      recordPushDiagnostic('push-token-error', {
+        reason: 'empty_token',
+        message: 'getExpoPushTokenAsync returned empty token',
+        ...context,
+      });
       return null;
     }
 
@@ -213,6 +252,8 @@ export async function getExpoPushTokenAsync(): Promise<string | null> {
       recordPushDiagnostic('push-token-invalid-format', {
         tokenPrefix: tokenPrefix(token),
         tokenLength: token.length,
+        message: 'Invalid Expo push token format',
+        ...context,
       });
       return null;
     }
@@ -224,9 +265,22 @@ export async function getExpoPushTokenAsync(): Promise<string | null> {
     });
     return token;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    pushLog('[push-token-error]', { message: errorMessage });
-    recordPushDiagnostic('push-token-error', { errorMessage });
+    const serialized = serializePushError(error);
+    const stackPreview = serialized.stack
+      ? serialized.stack.split('\n').slice(0, 8).join('\n')
+      : undefined;
+
+    pushLog('[push-token-error]', {
+      message: serialized.message,
+      name: serialized.name,
+      code: serialized.code,
+    });
+
+    recordPushDiagnostic('push-token-error', {
+      ...serialized,
+      stackPreview,
+      ...context,
+    });
     return null;
   }
 }

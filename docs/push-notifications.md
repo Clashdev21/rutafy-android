@@ -572,7 +572,7 @@ Ring buffer de **50 eventos** en AsyncStorage. Nunca guarda JWT ni token complet
 
 ### Eventos
 
-`push-permission-start|granted|denied|undetermined|error` · `push-project-id-missing|resolved` · `push-token-start|success|error|invalid-format` · `push-register-start|skip-no-session|payload|success|error|401|403|500` · `push-unregister-start|success|error` · `push-listener-received|response` · `push-navigation-intent`
+`push-permission-start|granted|denied|undetermined|error` · `push-project-id-missing|resolved` · `push-token-start|context|success|error|invalid-format` · `push-register-start|skip-no-session|payload|success|error|401|403|500` · `push-unregister-start|success|error` · `push-listener-received|response` · `push-navigation-intent`
 
 ### UI debug
 
@@ -580,6 +580,39 @@ Pantalla **Cuenta** (Mensajero / Transportista) → sección **Diagnóstico Push
 
 - Permiso, Project ID, token prefix, actor, último intento/éxito/error/HTTP
 - Botón **Reintentar registro push** → `registerPushIfSessionReady(user, 'manual_debug')`
+
+### Cómo leer `push-token-error` (Sprint Push 2B)
+
+Tras `push-token-start` → `push-token-context` → `push-project-id-resolved`, si falla `getExpoPushTokenAsync` el evento `push-token-error` incluye:
+
+| Campo | Uso |
+|-------|-----|
+| `message` / `name` / `code` | Error nativo Expo/FCM |
+| `stackPreview` | Primeras líneas del stack |
+| `cause` | Causa anidada si existe |
+| `projectId` | UUID usado en la llamada |
+| `appOwnership` / `executionEnvironment` | Contexto Expo (standalone / storeClient) |
+| `deviceBrand` / `deviceModel` / `osVersion` / `isDevice` | Dispositivo |
+
+En **Cuenta → Diagnóstico Push** se muestra el último error + sugerencia automática. Usa **Compartir diagnóstico push** para exportar estado + últimos 50 eventos.
+
+### Causas comunes de `getExpoPushTokenAsync`
+
+| Patrón en `message`/`code` | Causa probable | Acción |
+|----------------------------|----------------|--------|
+| `FirebaseApp` / `google-services` / `Default FirebaseApp` | Falta Firebase en el build nativo | Configurar FCM en EAS + rebuild (google-services) |
+| `SERVICE_NOT_AVAILABLE` / `FCM` / Play Services | FCM o Google Play Services | Revisar Play Services, red, credenciales FCM en Expo |
+| `projectId` / EAS | Project ID incorrecto o ausente en el APK | Verificar `app.json` → `extra.eas.projectId` y rebuild |
+| `isDevice=false` | Emulador | Usar dispositivo físico |
+| Sin `message` | Error nativo opaco | `adb logcat \| grep -iE "expo\|fcm\|firebase"` |
+
+### Validar FCM / EAS (sin tocar backend)
+
+1. Expo dashboard → proyecto → **Credentials** → Android → **FCM / Google Service Account**.
+2. Rebuild EAS tras subir credenciales (`eas build -p android`).
+3. Confirmar en panel: `push-token-context` con `projectId` y `executionEnvironment`.
+4. Si aparece FirebaseApp/google-services → el APK no tiene Firebase inicializado; no es un bug de auth ni de backend.
+5. Si aparece SERVICE_NOT_AVAILABLE → red/Play Services/FCM; reintentar y revisar logcat.
 
 ### Troubleshooting
 
@@ -589,6 +622,7 @@ Pantalla **Cuenta** (Mensajero / Transportista) → sección **Diagnóstico Push
 | `push-register-skip-no-session` + `missing_actor_type` | `/me` sin `actor_type` (corregido: derivación por `appRole`) | Rebuild + login |
 | `push-permission-denied` | Usuario denegó notificaciones | Ajustes Android → Notificaciones → Rutafy |
 | `push-project-id-missing` | Build sin `extra.eas.projectId` | Verificar `app.json` + rebuild EAS |
+| `push-token-error` con FirebaseApp | FCM no embebido en APK | Credenciales EAS + rebuild |
 | `push-token-invalid-format` | Token vacío o fake | Device físico + FCM en Expo dashboard |
 | `push-register-401` sin success posterior | Access token vencido sin refresh | Ver Auth 1A + botón reintentar |
 

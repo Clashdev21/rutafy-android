@@ -4,8 +4,10 @@ import type {
   PushDiagnosticEvent,
   PushDiagnosticEventType,
   PushDiagnosticState,
+  PushTokenErrorSnapshot,
 } from '@/types/pushDiagnostics';
 import { EMPTY_PUSH_DIAGNOSTIC_STATE } from '@/types/pushDiagnostics';
+import { suggestPushTokenFix } from '@/utils/serializePushError';
 
 const EVENTS_KEY = 'rutafy_push_diag_events';
 const STATE_KEY = 'rutafy_push_diag_state';
@@ -73,6 +75,36 @@ export function isValidExpoPushTokenFormat(token: string | null | undefined): bo
   return /^Expo(?:nent)?PushToken\[[^\]]+\]$/.test(t);
 }
 
+function pickStr(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function buildTokenErrorSnapshot(
+  detail: Record<string, unknown> | undefined,
+  timestamp: string,
+): PushTokenErrorSnapshot {
+  const message = pickStr(detail?.message) ?? pickStr(detail?.errorMessage) ?? pickStr(detail?.reason);
+  const suggestion = suggestPushTokenFix(detail);
+  return {
+    timestamp,
+    message,
+    name: pickStr(detail?.name),
+    code: pickStr(detail?.code),
+    stackPreview: pickStr(detail?.stackPreview) ?? pickStr(detail?.stack),
+    cause: pickStr(detail?.cause),
+    projectId: pickStr(detail?.projectId),
+    hasProjectId: detail?.hasProjectId === true,
+    appOwnership: pickStr(detail?.appOwnership),
+    executionEnvironment: pickStr(detail?.executionEnvironment),
+    deviceBrand: pickStr(detail?.deviceBrand),
+    deviceModel: pickStr(detail?.deviceModel),
+    osVersion: pickStr(detail?.osVersion),
+    isDevice: typeof detail?.isDevice === 'boolean' ? detail.isDevice : null,
+    platform: pickStr(detail?.platform),
+    suggestion,
+  };
+}
+
 export function recordPushDiagnostic(
   type: PushDiagnosticEventType,
   detail?: Record<string, unknown>,
@@ -92,7 +124,11 @@ export function recordPushDiagnostic(
     await writeJson(EVENTS_KEY, events);
 
     const state = await readJson<PushDiagnosticState>(STATE_KEY, EMPTY_PUSH_DIAGNOSTIC_STATE);
-    const next = { ...state };
+    const next: PushDiagnosticState = {
+      ...EMPTY_PUSH_DIAGNOSTIC_STATE,
+      ...state,
+      lastTokenError: state.lastTokenError ?? null,
+    };
 
     if (type === 'push-permission-granted') {
       next.lastPermissionStatus = 'granted';
@@ -110,6 +146,12 @@ export function recordPushDiagnostic(
 
     if (type === 'push-token-success' && typeof detail?.tokenPrefix === 'string') {
       next.lastTokenPrefix = detail.tokenPrefix;
+      next.lastTokenError = null;
+    }
+
+    if (type === 'push-token-error' || type === 'push-token-invalid-format') {
+      next.lastTokenError = buildTokenErrorSnapshot(detail, event.timestamp);
+      next.lastPushRegisterError = next.lastTokenError.message ?? type;
     }
 
     if (type === 'push-register-start') {
@@ -131,9 +173,7 @@ export function recordPushDiagnostic(
       type === 'push-register-500'
     ) {
       next.lastPushRegisterError =
-        typeof detail?.errorMessage === 'string'
-          ? detail.errorMessage
-          : type;
+        typeof detail?.errorMessage === 'string' ? detail.errorMessage : type;
       if (typeof detail?.httpStatus === 'number') next.lastHttpStatus = detail.httpStatus;
     }
 
@@ -149,7 +189,28 @@ export async function getPushDiagnosticEvents(
 }
 
 export async function getPushDiagnosticState(): Promise<PushDiagnosticState> {
-  return readJson(STATE_KEY, EMPTY_PUSH_DIAGNOSTIC_STATE);
+  const state = await readJson(STATE_KEY, EMPTY_PUSH_DIAGNOSTIC_STATE);
+  return {
+    ...EMPTY_PUSH_DIAGNOSTIC_STATE,
+    ...state,
+    lastTokenError: state.lastTokenError ?? null,
+  };
+}
+
+export async function buildPushDiagnosticExport(): Promise<{
+  exportedAt: string;
+  state: PushDiagnosticState;
+  events: PushDiagnosticEvent[];
+}> {
+  const [state, events] = await Promise.all([
+    getPushDiagnosticState(),
+    getPushDiagnosticEvents(MAX_EVENTS),
+  ]);
+  return {
+    exportedAt: nowIso(),
+    state,
+    events,
+  };
 }
 
 export async function canAttemptPushRegister(
