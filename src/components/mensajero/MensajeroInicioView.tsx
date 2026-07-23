@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { MensajeroAssignedScreen } from '@/components/mensajero/MensajeroAssignedScreen';
 import { MensajeroAvailableScreen } from '@/components/mensajero/MensajeroAvailableScreen';
 import { MensajeroInServiceScreen } from '@/components/mensajero/MensajeroInServiceScreen';
@@ -43,6 +44,10 @@ export function MensajeroInicioView() {
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.bellOverlay} pointerEvents="box-none">
+        <NotificationBell />
+      </View>
+
       {!canOperate ? <Banner message="La sesión no tiene actor_id válido para operar." /> : null}
       {pushOfferNotice ? <Banner message={pushOfferNotice} variant="warn" /> : null}
       {error ? <Banner message={error} variant="error" /> : null}
@@ -110,6 +115,12 @@ function Banner({ message, variant = 'warn' }: { message: string; variant?: 'war
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
+  bellOverlay: {
+    position: 'absolute',
+    top: Spacing.two,
+    right: Spacing.three,
+    zIndex: 20,
+  },
 });
 
 const bannerStyles = StyleSheet.create({

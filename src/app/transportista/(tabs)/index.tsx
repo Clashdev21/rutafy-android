@@ -1,6 +1,7 @@
 import { type Href, router } from 'expo-router';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { TabScrollScreen } from '@/components/layout/TabScrollScreen';
 import { TransportistaPhaseHero } from '@/components/transportista/TransportistaPhaseHero';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
@@ -13,8 +14,13 @@ export default function TransportistaInicioScreen() {
 
   return (
     <TabScrollScreen>
-      <Text style={styles.title}>Inicio</Text>
-      <Text style={styles.subtitle}>Estado operacional de tu empresa</Text>
+      <View style={styles.headerRow}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.title}>Inicio</Text>
+          <Text style={styles.subtitle}>Estado operacional de tu empresa</Text>
+        </View>
+        <NotificationBell />
+      </View>
 
       <TransportistaPhaseHero activeService={activeService} />
 
@@ -41,6 +47,13 @@ export default function TransportistaInicioScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  headerCopy: { flex: 1, gap: 4 },
   title: { fontSize: 28, fontWeight: '700', color: RutafyColors.textPrimary },
   subtitle: { fontSize: 14, color: RutafyColors.textSecondary },
   error: { color: RutafyColors.danger, fontSize: 14 },

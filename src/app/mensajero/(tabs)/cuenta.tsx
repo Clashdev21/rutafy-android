@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { useAuth } from '@/auth/useAuth';
 import { PushDiagnosticsPanel } from '@/components/notifications/PushDiagnosticsPanel';
+import { NotificationPreferencesSection } from '@/components/notifications/NotificationPreferencesSection';
 import { RutafyCuentaScreen } from '@/components/account/RutafyCuentaScreen';
 import { RutafyCard } from '@/components/rutafy/RutafyCard';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
@@ -60,6 +61,8 @@ export default function MensajeroCuentaScreen() {
           <Text style={styles.linkBtnText}>Historial de capturas</Text>
         </Pressable>
       </RutafyCard>
+
+      <NotificationPreferencesSection />
 
       <PushDiagnosticsPanel />
     </RutafyCuentaScreen>

@@ -4,6 +4,8 @@ import { useEffect, useRef } from 'react';
 import { Alert, AppState } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
+import { useNotificationsInbox } from '@/contexts/NotificationsInboxContext';
+import { trackCommunicationsEvent } from '@/services/communicationsAnalytics';
 import {
   parsePushNotificationData,
   setupNotificationHandler,
@@ -29,7 +31,7 @@ function logPush(tag: string, detail?: Record<string, unknown>): void {
 
 function resolveMensajeroScreen(data: PushNotificationData): Href {
   const screen = typeof data.screen === 'string' ? data.screen.trim() : '';
-  if (screen.startsWith('/mensajero')) {
+  if (screen.startsWith('/mensajero') && !screen.includes('/ofertas/')) {
     return screen as Href;
   }
   return MENSAJERO_HOME;
@@ -43,7 +45,23 @@ function storeDispatchOfferIntent(data: PushNotificationData): void {
   });
 }
 
-function handleForegroundNotification(data: PushNotificationData): void {
+function pickNotificationId(data: PushNotificationData): string | null {
+  const raw = data.notification_id ?? data.notificationId;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+type InboxBridge = {
+  refreshUnreadCount: () => Promise<void>;
+  refreshInbox: () => Promise<void>;
+  markOpened: (id: string) => Promise<void>;
+};
+
+type PushNavigationDeps = {
+  queueNavigation: (href: Href) => void;
+  inbox: InboxBridge;
+};
+
+function handleForegroundNotification(data: PushNotificationData, inbox: InboxBridge): void {
   logPush('[push-received-foreground]', {
     type: data.type ?? null,
     screen: data.screen ?? null,
@@ -52,15 +70,19 @@ function handleForegroundNotification(data: PushNotificationData): void {
     type: data.type ?? null,
     screen: data.screen ?? null,
   });
+  trackCommunicationsEvent('notification_received', {
+    type: data.type ?? null,
+    notification_id: pickNotificationId(data),
+    source: 'foreground',
+  });
+
+  void inbox.refreshUnreadCount();
+  void inbox.refreshInbox();
 
   if (data.type === 'test' && __DEV__) {
     Alert.alert('Notificación de prueba', 'Push recibida en primer plano.');
   }
 }
-
-type PushNavigationDeps = {
-  queueNavigation: (href: Href) => void;
-};
 
 function handleNotificationResponse(data: PushNotificationData, deps: PushNavigationDeps): void {
   logPush('[push-response]', {
@@ -75,6 +97,14 @@ function handleNotificationResponse(data: PushNotificationData, deps: PushNaviga
     offerId: data.offer_id ?? null,
     serviceId: data.service_id ?? null,
   });
+
+  const notificationId = pickNotificationId(data);
+  // markOpened es idempotente: solo llama API si opened_at == null
+  if (notificationId) {
+    void deps.inbox.markOpened(notificationId);
+  }
+  void deps.inbox.refreshUnreadCount();
+  void deps.inbox.refreshInbox();
 
   if (data.type === 'dispatch_offer') {
     storeDispatchOfferIntent(data);
@@ -106,10 +136,17 @@ function handleNotificationResponse(data: PushNotificationData, deps: PushNaviga
  */
 export function usePushNotifications(): void {
   const { isLoading, isAuthenticated, user } = useAuth();
+  const { refreshInbox, refreshUnreadCount, markOpened } = useNotificationsInbox();
   const pendingNavRef = useRef<Href | null>(null);
   const authReadyRef = useRef({ isLoading, isAuthenticated, user });
+  const inboxRef = useRef<InboxBridge>({
+    refreshInbox,
+    refreshUnreadCount,
+    markOpened,
+  });
 
   authReadyRef.current = { isLoading, isAuthenticated, user };
+  inboxRef.current = { refreshInbox, refreshUnreadCount, markOpened };
 
   const flushPendingNavigation = (): void => {
     const href = pendingNavRef.current;
@@ -153,6 +190,7 @@ export function usePushNotifications(): void {
       const { isAuthenticated: authed, user: currentUser } = authReadyRef.current;
       if (!authed || !currentUser) return;
       void registerPushIfSessionReady(currentUser, 'app_foreground');
+      void inboxRef.current.refreshUnreadCount();
     });
     return () => sub.remove();
   }, []);
@@ -160,7 +198,14 @@ export function usePushNotifications(): void {
   useEffect(() => {
     setupNotificationHandler();
 
-    const deps: PushNavigationDeps = { queueNavigation };
+    const deps: PushNavigationDeps = {
+      queueNavigation,
+      inbox: {
+        refreshInbox: () => inboxRef.current.refreshInbox(),
+        refreshUnreadCount: () => inboxRef.current.refreshUnreadCount(),
+        markOpened: (id) => inboxRef.current.markOpened(id),
+      },
+    };
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
@@ -172,7 +217,7 @@ export function usePushNotifications(): void {
 
     const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
       const data = parsePushNotificationData(notification.request.content.data);
-      handleForegroundNotification(data);
+      handleForegroundNotification(data, deps.inbox);
     });
 
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {

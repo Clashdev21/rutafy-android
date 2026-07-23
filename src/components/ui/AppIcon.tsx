@@ -16,7 +16,8 @@ export type AppIconName =
   | 'distance'
   | 'chevron_right'
   | 'close'
-  | 'search';
+  | 'search'
+  | 'notifications';
 
 const ICON_MAP: Record<AppIconName, { android: string; ios: string }> = {
   home: { android: 'home', ios: 'house.fill' },
@@ -32,6 +33,7 @@ const ICON_MAP: Record<AppIconName, { android: string; ios: string }> = {
   chevron_right: { android: 'chevron_right', ios: 'chevron.right' },
   close: { android: 'close', ios: 'xmark' },
   search: { android: 'search', ios: 'magnifyingglass' },
+  notifications: { android: 'notifications', ios: 'bell.fill' },
 };
 
 type Props = {

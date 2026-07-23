@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import { RutafyCuentaScreen } from '@/components/account/RutafyCuentaScreen';
+import { NotificationPreferencesSection } from '@/components/notifications/NotificationPreferencesSection';
 import { PushDiagnosticsPanel } from '@/components/notifications/PushDiagnosticsPanel';
 import { RutafyCard } from '@/components/rutafy/RutafyCard';
 import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
@@ -33,6 +34,8 @@ export default function TransportistaCuentaScreen() {
           <Text style={styles.linkBtnText}>Historial de capturas</Text>
         </Pressable>
       </RutafyCard>
+
+      <NotificationPreferencesSection />
 
       <PushDiagnosticsPanel />
     </RutafyCuentaScreen>

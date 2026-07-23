@@ -47,6 +47,8 @@ export type PushNotificationData = {
   service_id?: string;
   offer_id?: string;
   expires_at?: string;
+  notification_id?: string;
+  notificationId?: string;
   [key: string]: unknown;
 };
 

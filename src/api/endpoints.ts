@@ -51,4 +51,11 @@ export const NOTIFICATION_ENDPOINTS = {
   preferences: '/v1/notifications/preferences',
   registerDevice: '/v1/notifications/devices/register',
   unregisterDevice: '/v1/notifications/devices/unregister',
+  inbox: '/v1/notifications/inbox',
+  inboxUnreadCount: '/v1/notifications/inbox/unread-count',
+  inboxById: (id: string) => `/v1/notifications/inbox/${encodeURIComponent(id)}`,
+  inboxRead: (id: string) => `/v1/notifications/inbox/${encodeURIComponent(id)}/read`,
+  inboxOpened: (id: string) => `/v1/notifications/inbox/${encodeURIComponent(id)}/opened`,
+  inboxReadAll: '/v1/notifications/inbox/read-all',
+  inboxArchive: (id: string) => `/v1/notifications/inbox/${encodeURIComponent(id)}/archive`,
 } as const;

@@ -15,6 +15,7 @@ import { AuthProvider } from '@/auth/AuthProvider';
 import { AuthNavigationGuard } from '@/components/auth/AuthNavigationGuard';
 import { RutafyBrandSplash } from '@/components/brand/RutafyBrandSplash';
 import { PushNotificationsBootstrap } from '@/components/notifications/PushNotificationsBootstrap';
+import { NotificationsInboxProvider } from '@/contexts/NotificationsInboxContext';
 import { RutafyBrandPalette } from '@/constants/rutafyTheme';
 import { colors } from '@/theme/colors';
 import '@/services/backgroundLocationTask';
@@ -73,15 +74,17 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? RutafyDarkTheme : RutafyLightTheme}>
-        <PushNotificationsBootstrap />
-        <AuthNavigationGuard />
-        <Stack screenOptions={{ headerShown: false }} />
-        <RutafyBrandSplash
-          visible={showBrandSplash}
-          onFinish={() => setShowBrandSplash(false)}
-        />
-      </ThemeProvider>
+      <NotificationsInboxProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? RutafyDarkTheme : RutafyLightTheme}>
+          <PushNotificationsBootstrap />
+          <AuthNavigationGuard />
+          <Stack screenOptions={{ headerShown: false }} />
+          <RutafyBrandSplash
+            visible={showBrandSplash}
+            onFinish={() => setShowBrandSplash(false)}
+          />
+        </ThemeProvider>
+      </NotificationsInboxProvider>
     </AuthProvider>
   );
 }

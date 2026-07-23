@@ -614,6 +614,46 @@ En **Cuenta → Diagnóstico Push** se muestra el último error + sugerencia aut
 4. Si aparece FirebaseApp/google-services → el APK no tiene Firebase inicializado; no es un bug de auth ni de backend.
 5. Si aparece SERVICE_NOT_AVAILABLE → red/Play Services/FCM; reintentar y revisar logcat.
 
+### Configurar Firebase / `google-services.json` (Sprint Push 2C)
+
+**Causa confirmada en dispositivo:**
+
+```
+E_REGISTRATION_FAILED
+Default FirebaseApp is not initialized
+Did you configure googleServicesFile path in app config?
+```
+
+**Pasos (una sola vez):**
+
+1. [Firebase Console](https://console.firebase.google.com/) → crear proyecto o usar uno existente.
+2. Agregar app Android con package: `com.rutafy.rutafyandroid`.
+3. Descargar `google-services.json`.
+4. Colocarlo en la **raíz** del repo: `rutafy-android/google-services.json`.
+5. Confirmar en `app.json`:
+
+```json
+"android": {
+  "package": "com.rutafy.rutafyandroid",
+  "googleServicesFile": "./google-services.json"
+}
+```
+
+6. El archivo está en `.gitignore` (no se commitea).
+7. Rebuild nativo:
+
+```powershell
+npx expo prebuild --platform android --clean
+cd android
+.\gradlew clean
+.\gradlew assembleRelease
+```
+
+8. Instalar APK → **Cuenta → Diagnóstico Push → Reintentar registro push**.
+9. Esperado: `ExpoPushToken[...]` / `ExponentPushToken[...]` y en VPS `notification_devices.enabled = true`.
+
+**Opcional (entrega vía Expo Push Service):** subir también la service account FCM V1 en Expo dashboard → Credentials → Android, para que Expo pueda enviar a FCM. Sin eso, el token se obtiene en el device pero el envío desde Expo puede fallar.
+
 ### Troubleshooting
 
 | Síntoma en VPS | Causa probable en app | Acción |

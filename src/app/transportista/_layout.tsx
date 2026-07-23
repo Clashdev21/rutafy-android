@@ -17,6 +17,14 @@ export default function TransportistaLayout() {
           options={{ title: 'Nuevo servicio', headerShown: true, ...RutafyStackHeaderOptions }}
         />
         <Stack.Screen
+          name="notificaciones/index"
+          options={{ title: 'Notificaciones', headerShown: false }}
+        />
+        <Stack.Screen
+          name="notificaciones/[id]"
+          options={{ title: 'Detalle', headerShown: false }}
+        />
+        <Stack.Screen
           name="[id]"
           options={{ title: 'Detalle', headerShown: true, ...RutafyStackHeaderOptions }}
         />

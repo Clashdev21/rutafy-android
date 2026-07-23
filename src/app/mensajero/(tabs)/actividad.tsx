@@ -4,6 +4,7 @@ import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ServiceListItem } from '@/components/services/ServiceListItem';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { AppEmptyState, AppHeader, AppSkeletonCard } from '@/components/ui';
 import { getTabBarScrollPadding } from '@/constants/tabBarLayout';
 import { useMensajeroOperationsContext } from '@/contexts/MensajeroOperationsContext';
@@ -33,7 +34,11 @@ export default function MensajeroActividadScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <AppHeader title="Actividad" subtitle="Servicios asignados y en curso" />
+        <AppHeader
+          title="Actividad"
+          subtitle="Servicios asignados y en curso"
+          right={<NotificationBell href="/mensajero/notificaciones" />}
+        />
 
         <FlatList
           style={styles.listFlex}

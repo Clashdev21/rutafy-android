@@ -9,6 +9,14 @@ export default function MensajeroLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
+          name="notificaciones/index"
+          options={{ title: 'Notificaciones', headerShown: false }}
+        />
+        <Stack.Screen
+          name="notificaciones/[id]"
+          options={{ title: 'Detalle', headerShown: false }}
+        />
+        <Stack.Screen
           name="[id]"
           options={{ title: 'Detalle', headerShown: true, ...RutafyStackHeaderOptions }}
         />
