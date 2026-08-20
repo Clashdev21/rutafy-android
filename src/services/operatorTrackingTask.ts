@@ -21,6 +21,7 @@ import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
 import { classifyOperatorBgBatchError } from '@/utils/operatorTrackingHealthAudit';
 import { locationsToTrackingPoints } from '@/utils/trackingPointMapper';
+import { resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { buildTraceId } from '@/utils/traceId';
 
 /** Task de ubicación en segundo plano para captura logística (separada del mensajero). */
@@ -77,6 +78,7 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
     console.log('[tracking-cleanup-local]', { reason });
   }
   await stopOperatorTrackingAsync();
+  resetSpeedTelemetryPreviousFix();
   await trackingSessionStorage.clearActive();
 }
 

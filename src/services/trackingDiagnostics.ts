@@ -52,9 +52,48 @@ async function writeJson(key: string, value: unknown): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
-function applyEventToStats(type: string, stats: TrackingStatistics): TrackingStatistics {
+function incrementRunningAvg(
+  prevAvg: number | null,
+  count: number,
+  value: number,
+): number {
+  if (count <= 1) return value;
+  const base = prevAvg ?? value;
+  return base + (value - base) / count;
+}
+
+function normalizeStatistics(stats: Partial<TrackingStatistics>): TrackingStatistics {
+  return { ...EMPTY_TRACKING_STATISTICS, ...stats };
+}
+
+function normalizeSpeedStatsEventType(type: string): string | null {
+  if (type.startsWith('speed-stat-')) {
+    if (type === 'speed-stat-rejected') return 'speed-sample-rejected';
+    return type.replace('speed-stat-', 'speed-');
+  }
+  if (
+    type === 'speed-native' ||
+    type === 'speed-derived' ||
+    type === 'speed-unavailable' ||
+    type === 'speed-sample-rejected'
+  ) {
+    return null;
+  }
+  return type;
+}
+
+function applyEventToStats(
+  type: string,
+  stats: TrackingStatistics,
+  detail?: Record<string, unknown>,
+): TrackingStatistics {
+  const statsType = normalizeSpeedStatsEventType(type);
+  if (statsType == null) {
+    return stats;
+  }
+
   const next = { ...stats };
-  switch (type) {
+  switch (statsType) {
     case 'gps-fix-received':
       next.gpsFixes += 1;
       break;
@@ -105,6 +144,52 @@ function applyEventToStats(type: string, stats: TrackingStatistics): TrackingSta
       break;
     case 'bg-task-stop':
       next.taskStops += 1;
+      break;
+    case 'speed-native': {
+      const kmh =
+        typeof detail?.speedNativeKmh === 'number' && Number.isFinite(detail.speedNativeKmh)
+          ? detail.speedNativeKmh
+          : null;
+      if (kmh == null) break;
+      next.nativeSpeedSamples += 1;
+      next.lastNativeSpeedKmh = kmh;
+      next.maxNativeSpeedKmh =
+        next.maxNativeSpeedKmh == null ? kmh : Math.max(next.maxNativeSpeedKmh, kmh);
+      next.avgNativeAvailableSpeedKmh = incrementRunningAvg(
+        next.avgNativeAvailableSpeedKmh,
+        next.nativeSpeedSamples,
+        kmh,
+      );
+      break;
+    }
+    case 'speed-derived': {
+      const kmh =
+        typeof detail?.speedDerivedKmh === 'number' && Number.isFinite(detail.speedDerivedKmh)
+          ? detail.speedDerivedKmh
+          : null;
+      if (kmh == null) break;
+      next.derivedSpeedSamples += 1;
+      next.lastDerivedSpeedKmh = kmh;
+      next.maxDerivedSpeedKmh =
+        next.maxDerivedSpeedKmh == null ? kmh : Math.max(next.maxDerivedSpeedKmh, kmh);
+      next.avgDerivedAvailableSpeedKmh = incrementRunningAvg(
+        next.avgDerivedAvailableSpeedKmh,
+        next.derivedSpeedSamples,
+        kmh,
+      );
+      break;
+    }
+    case 'speed-unavailable': {
+      const reason = typeof detail?.reason === 'string' ? detail.reason : '';
+      if (reason === 'native_null' || reason === 'native_invalid') {
+        next.nativeSpeedUnavailable += 1;
+      } else if (reason.startsWith('derived_')) {
+        next.derivedSpeedUnavailable += 1;
+      }
+      break;
+    }
+    case 'speed-sample-rejected':
+      next.rejectedSpeedSamples += 1;
       break;
     default:
       break;
@@ -176,19 +261,24 @@ export function recordTrackingDiagnostic(
     detail: detail && Object.keys(detail).length > 0 ? detail : undefined,
   };
 
+  /** speed-stat-* solo persisten estadísticas; no saturan el ring buffer. */
+  const appendToRingBuffer = !type.startsWith('speed-stat-');
+
   enqueuePersist(async () => {
     const [events, stats, snapshot] = await Promise.all([
       readJson<TrackingDiagnosticEvent[]>(EVENTS_KEY, []),
-      readJson<TrackingStatistics>(STATS_KEY, { ...EMPTY_TRACKING_STATISTICS }),
+      readJson<Partial<TrackingStatistics>>(STATS_KEY, EMPTY_TRACKING_STATISTICS),
       readJson<TrackingSnapshot>(SNAPSHOT_KEY, {}),
     ]);
 
-    const nextEvents = [...events, event];
-    while (nextEvents.length > MAX_EVENTS) {
-      nextEvents.shift();
+    const nextEvents = appendToRingBuffer ? [...events, event] : [...events];
+    if (appendToRingBuffer) {
+      while (nextEvents.length > MAX_EVENTS) {
+        nextEvents.shift();
+      }
     }
 
-    const nextStats = applyEventToStats(type, stats);
+    const nextStats = applyEventToStats(type, normalizeStatistics(stats), detail);
     const nextSnapshot = applyEventToSnapshot(type, snapshot, timestamp, detail);
 
     await Promise.all([
@@ -207,7 +297,8 @@ export async function getTrackingDiagnosticEvents(
 }
 
 export async function getTrackingStatistics(): Promise<TrackingStatistics> {
-  return readJson<TrackingStatistics>(STATS_KEY, { ...EMPTY_TRACKING_STATISTICS });
+  const raw = await readJson<Partial<TrackingStatistics>>(STATS_KEY, EMPTY_TRACKING_STATISTICS);
+  return normalizeStatistics(raw);
 }
 
 export async function getTrackingSnapshot(): Promise<TrackingSnapshot> {

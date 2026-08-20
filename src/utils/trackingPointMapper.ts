@@ -2,6 +2,7 @@ import type { LocationObject } from 'expo-location';
 
 import { gpsDetailFromPoint, recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import type { TrackingPointAppState, TrackingPointInput } from '@/types/tracking';
+import { observeSpeedTelemetryFromPoint } from '@/utils/speedTelemetryObserver';
 
 type CoordsLike = {
   latitude?: number;
@@ -46,6 +47,7 @@ export function toTrackingPoint(
   };
 
   recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point));
+  observeSpeedTelemetryFromPoint(point);
   return point;
 }
 

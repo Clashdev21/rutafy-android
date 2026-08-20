@@ -9,6 +9,7 @@ import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { AuthUser } from '@/types/auth';
 import type { StoredTrackingSession, TrackingSession } from '@/types/tracking';
 import type { TrackingSessionEndReason } from '@/types/trackingDiagnostics';
+import { resetSpeedTelemetryForNewSession, resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 
 function normId(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -75,6 +76,7 @@ export async function cleanupLocalTrackingSession(reason: string): Promise<void>
   const endReason = mapCleanupToEndReason(reason);
   await setSessionEndReason(endReason);
   recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
+  resetSpeedTelemetryPreviousFix();
   await stopOperatorTrackingAsync();
   await trackingSessionStorage.clearActive();
 }

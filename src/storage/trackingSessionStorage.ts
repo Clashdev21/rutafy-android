@@ -9,6 +9,8 @@ const ACTIVE_SESSION_KEY = 'rutafy_tracking_session_active';
 const isWeb = Platform.OS === 'web';
 
 let lastStorageLoadedSessionId: string | null = null;
+/** Espejo síncrono del sessionId activo (task BG + observer speed). */
+let activeSessionIdSync: string | null = null;
 
 async function getRaw(): Promise<string | null> {
   if (isWeb) {
@@ -41,12 +43,23 @@ async function clearRaw(): Promise<void> {
 }
 
 export const trackingSessionStorage = {
+  getActiveSessionIdSync(): string | null {
+    return activeSessionIdSync;
+  },
+
   async getActive(): Promise<StoredTrackingSession | null> {
     const raw = await getRaw();
-    if (!raw) return null;
+    if (!raw) {
+      activeSessionIdSync = null;
+      return null;
+    }
     try {
       const parsed = JSON.parse(raw) as StoredTrackingSession;
-      if (!parsed?.sessionId?.trim()) return null;
+      if (!parsed?.sessionId?.trim()) {
+        activeSessionIdSync = null;
+        return null;
+      }
+      activeSessionIdSync = parsed.sessionId;
       if (parsed.sessionId !== lastStorageLoadedSessionId) {
         lastStorageLoadedSessionId = parsed.sessionId;
         recordTrackingDiagnostic('tracking-storage-loaded', {
@@ -56,12 +69,14 @@ export const trackingSessionStorage = {
       }
       return parsed;
     } catch {
+      activeSessionIdSync = null;
       return null;
     }
   },
 
   async setActive(session: StoredTrackingSession): Promise<void> {
     await setRaw(JSON.stringify(session));
+    activeSessionIdSync = session.sessionId;
     recordTrackingDiagnostic('tracking-storage-restored', {
       sessionId: session.sessionId,
       startedAt: session.startedAt,
@@ -80,6 +95,7 @@ export const trackingSessionStorage = {
     }
     await clearRaw();
     lastStorageLoadedSessionId = null;
+    activeSessionIdSync = null;
     recordTrackingDiagnostic('tracking-storage-cleared', {}, sessionId);
   },
 };

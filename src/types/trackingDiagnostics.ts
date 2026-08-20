@@ -32,6 +32,18 @@ export interface TrackingStatistics {
   backgroundRestarts: number;
   gpsErrors: number;
   taskStops: number;
+  /** Speed 2A — telemetría observacional local */
+  nativeSpeedSamples: number;
+  derivedSpeedSamples: number;
+  nativeSpeedUnavailable: number;
+  derivedSpeedUnavailable: number;
+  rejectedSpeedSamples: number;
+  lastNativeSpeedKmh: number | null;
+  lastDerivedSpeedKmh: number | null;
+  maxNativeSpeedKmh: number | null;
+  maxDerivedSpeedKmh: number | null;
+  avgNativeAvailableSpeedKmh: number | null;
+  avgDerivedAvailableSpeedKmh: number | null;
 }
 
 export interface TrackingSnapshot {
@@ -99,6 +111,17 @@ export const EMPTY_TRACKING_STATISTICS: TrackingStatistics = {
   backgroundRestarts: 0,
   gpsErrors: 0,
   taskStops: 0,
+  nativeSpeedSamples: 0,
+  derivedSpeedSamples: 0,
+  nativeSpeedUnavailable: 0,
+  derivedSpeedUnavailable: 0,
+  rejectedSpeedSamples: 0,
+  lastNativeSpeedKmh: null,
+  lastDerivedSpeedKmh: null,
+  maxNativeSpeedKmh: null,
+  maxDerivedSpeedKmh: null,
+  avgNativeAvailableSpeedKmh: null,
+  avgDerivedAvailableSpeedKmh: null,
 };
 
 export type TrackingHealthCheckOptions = {
