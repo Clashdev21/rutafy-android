@@ -4,6 +4,7 @@ import { stopOperatorTrackingAsync } from '@/services/operatorTrackingService';
 import {
   recordTrackingDiagnostic,
   setSessionEndReason,
+  endSessionSpeedStatistics,
 } from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { AuthUser } from '@/types/auth';
@@ -76,6 +77,7 @@ export async function cleanupLocalTrackingSession(reason: string): Promise<void>
   const endReason = mapCleanupToEndReason(reason);
   await setSessionEndReason(endReason);
   recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
+  await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
   await stopOperatorTrackingAsync();
   await trackingSessionStorage.clearActive();
