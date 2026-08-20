@@ -5,6 +5,7 @@ import * as Device from 'expo-device';
 import { AppState } from 'react-native';
 
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import type { SessionSpeedStatistics } from '@/types/sessionSpeedStatistics';
 import type {
   TrackingDiagnosticEvent,
   TrackingDiagnosticExport,
@@ -15,12 +16,19 @@ import type {
   TrackingStatistics,
 } from '@/types/trackingDiagnostics';
 import { EMPTY_TRACKING_STATISTICS } from '@/types/trackingDiagnostics';
+import {
+  applySpeedStatEventToCounters,
+  markSessionSpeedEnded,
+  resolveSessionSpeedBucket,
+} from '@/utils/sessionSpeedStatistics';
 import { analyzeTrackingDiagnostics } from '@/utils/trackingDiagnosticAnalyzer';
 
 const EVENTS_KEY = 'rutafy_tracking_diag_events';
 const SNAPSHOT_KEY = 'rutafy_tracking_diag_snapshot';
 const STATS_KEY = 'rutafy_tracking_diag_stats';
 const END_REASON_KEY = 'rutafy_tracking_diag_end_reason';
+/** Speed 2A.2.1 — un solo bucket: sesión activa o última finalizada. */
+const SESSION_SPEED_STATS_KEY = 'rutafy_tracking_diag_session_speed_stats';
 
 const MAX_EVENTS = 100;
 const STALE_THRESHOLD_MS = 180_000;
@@ -52,30 +60,56 @@ async function writeJson(key: string, value: unknown): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
-function incrementRunningAvg(
-  prevAvg: number | null,
-  count: number,
-  value: number,
-): number {
-  if (count <= 1) return value;
-  const base = prevAvg ?? value;
-  return base + (value - base) / count;
-}
-
 function normalizeStatistics(stats: Partial<TrackingStatistics>): TrackingStatistics {
   return { ...EMPTY_TRACKING_STATISTICS, ...stats };
+}
+
+function enqueuePersist(fn: () => Promise<void>): void {
+  persistChain = persistChain.then(fn).catch(() => undefined);
+}
+
+function runOnPersistChain<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    enqueuePersist(async () => {
+      try {
+        resolve(await fn());
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
 }
 
 function normalizeSpeedStatsEventType(type: string): string | null {
   if (type.startsWith('speed-stat-')) {
     if (type === 'speed-stat-rejected') return 'speed-sample-rejected';
+    // Eventos 2A.2 con nombre propio (no colapsar a speed-*).
+    if (
+      type.startsWith('speed-stat-quality-') ||
+      type === 'speed-stat-native-zero' ||
+      type === 'speed-stat-native-zero-moving' ||
+      type === 'speed-stat-poor-accuracy' ||
+      type === 'speed-stat-long-gap' ||
+      type === 'speed-stat-implausible' ||
+      type === 'speed-stat-fix-age' ||
+      type === 'speed-stat-mocked' ||
+      type === 'speed-stat-fix-meta'
+    ) {
+      return type;
+    }
     return type.replace('speed-stat-', 'speed-');
   }
   if (
     type === 'speed-native' ||
     type === 'speed-derived' ||
     type === 'speed-unavailable' ||
-    type === 'speed-sample-rejected'
+    type === 'speed-sample-rejected' ||
+    type === 'speed-quality-good' ||
+    type === 'speed-quality-weak' ||
+    type === 'speed-quality-rejected' ||
+    type === 'speed-native-zero-moving' ||
+    type === 'gps-fix-stale' ||
+    type === 'gps-fix-mocked'
   ) {
     return null;
   }
@@ -90,6 +124,11 @@ function applyEventToStats(
   const statsType = normalizeSpeedStatsEventType(type);
   if (statsType == null) {
     return stats;
+  }
+
+  const speedUpdated = applySpeedStatEventToCounters(statsType, stats, detail);
+  if (speedUpdated != null) {
+    return speedUpdated;
   }
 
   const next = { ...stats };
@@ -145,52 +184,6 @@ function applyEventToStats(
     case 'bg-task-stop':
       next.taskStops += 1;
       break;
-    case 'speed-native': {
-      const kmh =
-        typeof detail?.speedNativeKmh === 'number' && Number.isFinite(detail.speedNativeKmh)
-          ? detail.speedNativeKmh
-          : null;
-      if (kmh == null) break;
-      next.nativeSpeedSamples += 1;
-      next.lastNativeSpeedKmh = kmh;
-      next.maxNativeSpeedKmh =
-        next.maxNativeSpeedKmh == null ? kmh : Math.max(next.maxNativeSpeedKmh, kmh);
-      next.avgNativeAvailableSpeedKmh = incrementRunningAvg(
-        next.avgNativeAvailableSpeedKmh,
-        next.nativeSpeedSamples,
-        kmh,
-      );
-      break;
-    }
-    case 'speed-derived': {
-      const kmh =
-        typeof detail?.speedDerivedKmh === 'number' && Number.isFinite(detail.speedDerivedKmh)
-          ? detail.speedDerivedKmh
-          : null;
-      if (kmh == null) break;
-      next.derivedSpeedSamples += 1;
-      next.lastDerivedSpeedKmh = kmh;
-      next.maxDerivedSpeedKmh =
-        next.maxDerivedSpeedKmh == null ? kmh : Math.max(next.maxDerivedSpeedKmh, kmh);
-      next.avgDerivedAvailableSpeedKmh = incrementRunningAvg(
-        next.avgDerivedAvailableSpeedKmh,
-        next.derivedSpeedSamples,
-        kmh,
-      );
-      break;
-    }
-    case 'speed-unavailable': {
-      const reason = typeof detail?.reason === 'string' ? detail.reason : '';
-      if (reason === 'native_null' || reason === 'native_invalid') {
-        next.nativeSpeedUnavailable += 1;
-      } else if (reason.startsWith('derived_')) {
-        next.derivedSpeedUnavailable += 1;
-      }
-      break;
-    }
-    case 'speed-sample-rejected':
-      next.rejectedSpeedSamples += 1;
-      break;
     default:
       break;
   }
@@ -244,8 +237,36 @@ function applyEventToSnapshot(
   return next;
 }
 
-function enqueuePersist(fn: () => Promise<void>): void {
-  persistChain = persistChain.then(fn).catch(() => undefined);
+/**
+ * Inicia o continúa el bucket de sesión Speed.
+ * Misma sessionId → conserva; distinta → cero.
+ */
+export function beginSessionSpeedStatistics(sessionId: string): void {
+  if (!sessionId.trim()) return;
+  enqueuePersist(async () => {
+    const existing = await readJson<SessionSpeedStatistics | null>(
+      SESSION_SPEED_STATS_KEY,
+      null,
+    );
+    const { stats } = resolveSessionSpeedBucket(existing, sessionId);
+    await writeJson(SESSION_SPEED_STATS_KEY, stats);
+  });
+}
+
+/** Marca endedAt; no borra el bucket (export post-captura). */
+export async function endSessionSpeedStatistics(): Promise<void> {
+  await runOnPersistChain(async () => {
+    const existing = await readJson<SessionSpeedStatistics | null>(
+      SESSION_SPEED_STATS_KEY,
+      null,
+    );
+    if (!existing) return;
+    await writeJson(SESSION_SPEED_STATS_KEY, markSessionSpeedEnded(existing));
+  });
+}
+
+export async function getSessionSpeedStatistics(): Promise<SessionSpeedStatistics | null> {
+  return readJson<SessionSpeedStatistics | null>(SESSION_SPEED_STATS_KEY, null);
 }
 
 export function recordTrackingDiagnostic(
@@ -265,10 +286,11 @@ export function recordTrackingDiagnostic(
   const appendToRingBuffer = !type.startsWith('speed-stat-');
 
   enqueuePersist(async () => {
-    const [events, stats, snapshot] = await Promise.all([
+    const [events, stats, snapshot, sessionSpeed] = await Promise.all([
       readJson<TrackingDiagnosticEvent[]>(EVENTS_KEY, []),
       readJson<Partial<TrackingStatistics>>(STATS_KEY, EMPTY_TRACKING_STATISTICS),
       readJson<TrackingSnapshot>(SNAPSHOT_KEY, {}),
+      readJson<SessionSpeedStatistics | null>(SESSION_SPEED_STATS_KEY, null),
     ]);
 
     const nextEvents = appendToRingBuffer ? [...events, event] : [...events];
@@ -281,11 +303,27 @@ export function recordTrackingDiagnostic(
     const nextStats = applyEventToStats(type, normalizeStatistics(stats), detail);
     const nextSnapshot = applyEventToSnapshot(type, snapshot, timestamp, detail);
 
-    await Promise.all([
+    let nextSessionSpeed = sessionSpeed;
+    if (sessionId && sessionSpeed && sessionSpeed.sessionId === sessionId) {
+      const statsType = normalizeSpeedStatsEventType(type);
+      if (statsType != null) {
+        const applied = applySpeedStatEventToCounters(statsType, sessionSpeed, detail);
+        if (applied != null) {
+          nextSessionSpeed = applied;
+        }
+      }
+    }
+
+    const writes: Promise<void>[] = [
       writeJson(EVENTS_KEY, nextEvents),
       writeJson(STATS_KEY, nextStats),
       writeJson(SNAPSHOT_KEY, nextSnapshot),
-    ]);
+    ];
+    if (nextSessionSpeed !== sessionSpeed && nextSessionSpeed != null) {
+      writes.push(writeJson(SESSION_SPEED_STATS_KEY, nextSessionSpeed));
+    }
+
+    await Promise.all(writes);
   });
 }
 
@@ -431,13 +469,15 @@ export function gpsDetailFromPoint(point: {
 }
 
 export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosticExport> {
-  const [events, statistics, snapshot, endReason, localSession] = await Promise.all([
-    getTrackingDiagnosticEvents(MAX_EVENTS),
-    getTrackingStatistics(),
-    getTrackingSnapshot(),
-    getSessionEndReason(),
-    trackingSessionStorage.getActive(),
-  ]);
+  const [events, statistics, snapshot, endReason, localSession, sessionSpeedStatistics] =
+    await Promise.all([
+      getTrackingDiagnosticEvents(MAX_EVENTS),
+      getTrackingStatistics(),
+      getTrackingSnapshot(),
+      getSessionEndReason(),
+      trackingSessionStorage.getActive(),
+      getSessionSpeedStatistics(),
+    ]);
 
   let batteryLevel: number | null = null;
   let lowPowerMode: boolean | null = null;
@@ -514,6 +554,7 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
       endReason,
     },
     statistics,
+    sessionSpeedStatistics,
     snapshot,
     events,
     analysis,

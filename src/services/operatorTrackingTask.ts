@@ -12,6 +12,7 @@ import {
   stopOperatorTrackingAsync,
 } from '@/services/operatorTrackingService';
 import {
+  endSessionSpeedStatistics,
   gpsDetailFromPoint,
   recordTrackingDiagnostic,
   runTrackingHealthCheck,
@@ -78,6 +79,7 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
     console.log('[tracking-cleanup-local]', { reason });
   }
   await stopOperatorTrackingAsync();
+  await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
   await trackingSessionStorage.clearActive();
 }

@@ -1,3 +1,5 @@
+import type { SpeedQuality, SpeedQualityReason } from '@/types/speedQuality';
+
 /** Fuente de velocidad observada (telemetría local; no se envía al backend en 2A). */
 export type SpeedTelemetrySource = 'native' | 'derived' | 'unavailable';
 
@@ -11,6 +13,10 @@ export type SpeedTelemetrySample = {
   heading: number | null;
   distanceFromPreviousM: number | null;
   deltaTimeMs: number | null;
+  quality?: SpeedQuality | null;
+  qualityReason?: SpeedQualityReason | null;
+  combinedAccuracyM?: number | null;
+  displacementQualityRatio?: number | null;
   /** Reservado Speed 2B — no usado en 2A */
   mapSpeedKmh?: number | null;
   filteredSpeedKmh?: number | null;
@@ -22,6 +28,12 @@ export type SpeedTelemetryDerivedSample = {
   speedDerivedKmh: number;
   distanceFromPreviousM: number;
   deltaTimeMs: number;
+  previousAccuracyM?: number | null;
+  currentAccuracyM?: number | null;
+  combinedAccuracyM?: number | null;
+  displacementQualityRatio?: number | null;
+  quality?: SpeedQuality | null;
+  qualityReason?: SpeedQualityReason | null;
 };
 
 export type SpeedTelemetryPreviousFix = {
@@ -29,6 +41,15 @@ export type SpeedTelemetryPreviousFix = {
   lat: number;
   lng: number;
   capturedAtMs: number;
+  /** Accuracy del fix anterior (solo diagnóstico local). */
+  accuracyM: number | null;
+};
+
+/** Contexto observacional separado del payload TrackingPointInput/backend. */
+export type SpeedTelemetryObserveContext = {
+  fixAgeMs?: number | null;
+  mocked?: boolean | null;
+  locationTimestampMs?: number | null;
 };
 
 export type NativeSpeedParseResult =

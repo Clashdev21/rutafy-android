@@ -1,3 +1,5 @@
+import type { SessionSpeedStatistics } from './sessionSpeedStatistics';
+
 export type TrackingSessionEndReason =
   | 'user'
   | 'admin'
@@ -37,6 +39,7 @@ export interface TrackingStatistics {
   derivedSpeedSamples: number;
   nativeSpeedUnavailable: number;
   derivedSpeedUnavailable: number;
+  /** Rechazos matemáticos (deltaTime<=0, coords inválidas, etc.) — semántica 2A.1 */
   rejectedSpeedSamples: number;
   lastNativeSpeedKmh: number | null;
   lastDerivedSpeedKmh: number | null;
@@ -44,6 +47,25 @@ export interface TrackingStatistics {
   maxDerivedSpeedKmh: number | null;
   avgNativeAvailableSpeedKmh: number | null;
   avgDerivedAvailableSpeedKmh: number | null;
+  /** Speed 2A.2 — quality gate / fix instrumentation */
+  nativeZeroSamples: number;
+  nativeZeroWhileMoving: number;
+  nativeZeroWhileMovingRate: number | null;
+  derivedGoodSamples: number;
+  derivedWeakSamples: number;
+  derivedRejectedSamples: number;
+  poorAccuracySamples: number;
+  longGapSpeedSamples: number;
+  implausibleSpeedSamples: number;
+  staleFixSamples: number;
+  mockedFixes: number;
+  lastDisplacementQualityRatio: number | null;
+  lastCombinedAccuracyM: number | null;
+  lastFixAgeMs: number | null;
+  lastFixMocked: boolean | null;
+  maxFixAgeMs: number | null;
+  avgGoodDerivedSpeedKmh: number | null;
+  maxGoodDerivedSpeedKmh: number | null;
 }
 
 export interface TrackingSnapshot {
@@ -90,6 +112,8 @@ export interface TrackingDiagnosticExport {
     endReason: TrackingSessionEndReason | null;
   };
   statistics: TrackingStatistics;
+  /** Speed 2A.2.1 — stats de la sesión activa o última cerrada (no lifetime). */
+  sessionSpeedStatistics: SessionSpeedStatistics | null;
   snapshot: TrackingSnapshot;
   events: TrackingDiagnosticEvent[];
   analysis: TrackingDiagnosticExportAnalysis;
@@ -122,6 +146,24 @@ export const EMPTY_TRACKING_STATISTICS: TrackingStatistics = {
   maxDerivedSpeedKmh: null,
   avgNativeAvailableSpeedKmh: null,
   avgDerivedAvailableSpeedKmh: null,
+  nativeZeroSamples: 0,
+  nativeZeroWhileMoving: 0,
+  nativeZeroWhileMovingRate: null,
+  derivedGoodSamples: 0,
+  derivedWeakSamples: 0,
+  derivedRejectedSamples: 0,
+  poorAccuracySamples: 0,
+  longGapSpeedSamples: 0,
+  implausibleSpeedSamples: 0,
+  staleFixSamples: 0,
+  mockedFixes: 0,
+  lastDisplacementQualityRatio: null,
+  lastCombinedAccuracyM: null,
+  lastFixAgeMs: null,
+  lastFixMocked: null,
+  maxFixAgeMs: null,
+  avgGoodDerivedSpeedKmh: null,
+  maxGoodDerivedSpeedKmh: null,
 };
 
 export type TrackingHealthCheckOptions = {

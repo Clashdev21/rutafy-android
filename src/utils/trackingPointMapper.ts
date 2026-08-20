@@ -15,6 +15,7 @@ type CoordsLike = {
 type LocationLike = {
   coords?: CoordsLike;
   timestamp?: number;
+  mocked?: boolean;
 };
 
 export function toTrackingPoint(
@@ -31,6 +32,7 @@ export function toTrackingPoint(
   const speed = coords?.speed;
   const heading = coords?.heading;
 
+  // TrackingPointInput / backend payload — contrato original intacto.
   const point: TrackingPointInput = {
     lat: lat as number,
     lng: lng as number,
@@ -46,8 +48,24 @@ export function toTrackingPoint(
     metadata,
   };
 
+  // Contexto observacional Speed 2A.2 — NO se añade al batch API.
+  const locationTimestampMs =
+    typeof location.timestamp === 'number' && Number.isFinite(location.timestamp)
+      ? location.timestamp
+      : null;
+  const fixAgeMs =
+    locationTimestampMs != null ? Math.max(0, Date.now() - locationTimestampMs) : null;
+  const mocked =
+    typeof (location as LocationLike).mocked === 'boolean'
+      ? (location as LocationLike).mocked
+      : null;
+
   recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point));
-  observeSpeedTelemetryFromPoint(point);
+  observeSpeedTelemetryFromPoint(point, undefined, {
+    fixAgeMs,
+    mocked,
+    locationTimestampMs,
+  });
   return point;
 }
 
