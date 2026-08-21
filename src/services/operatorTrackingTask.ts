@@ -17,6 +17,7 @@ import {
   recordTrackingDiagnostic,
   runTrackingHealthCheck,
 } from '@/services/trackingDiagnostics';
+import { stopMotionTelemetryForSession } from '@/services/motionTelemetryService';
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
@@ -79,6 +80,7 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
     console.log('[tracking-cleanup-local]', { reason });
   }
   await stopOperatorTrackingAsync();
+  await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
   await trackingSessionStorage.clearActive();

@@ -44,6 +44,7 @@ import {
 } from '@/utils/trackingSessionOwnership';
 import { toTrackingPoint } from '@/utils/trackingPointMapper';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
+import { startMotionTelemetryForSession } from '@/services/motionTelemetryService';
 
 const BATCH_FLUSH_MS = 12000;
 const WATCH_TIME_INTERVAL_MS = 20000;
@@ -314,6 +315,7 @@ export function useOperatorTrackingSession() {
       setPurpose(local.purpose);
       setVehicleLabel(local.vehicleLabel);
       resetSpeedTelemetryForNewSession(local.sessionId);
+      void startMotionTelemetryForSession(local.sessionId);
       recordTrackingDiagnostic('tracking-restored', {
         sessionId: local.sessionId,
         startedAt: local.startedAt,
@@ -480,6 +482,7 @@ export function useOperatorTrackingSession() {
       await operatorTrackingHealthStorage.clear();
       await trackingSessionStorage.setActive(stored);
       resetSpeedTelemetryForNewSession(stored.sessionId);
+      void startMotionTelemetryForSession(stored.sessionId);
       setStoredSession(stored);
       setRemoteStatus(session.status);
       setPointsSent(0);

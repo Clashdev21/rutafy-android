@@ -1,3 +1,4 @@
+import type { SessionMotionStatistics } from './sessionMotionStatistics';
 import type { SessionSpeedStatistics } from './sessionSpeedStatistics';
 
 export type TrackingSessionEndReason =
@@ -114,6 +115,8 @@ export interface TrackingDiagnosticExport {
   statistics: TrackingStatistics;
   /** Speed 2A.2.1 — stats de la sesión activa o última cerrada (no lifetime). */
   sessionSpeedStatistics: SessionSpeedStatistics | null;
+  /** Speed 2B.0 — motion FG-only, sesión activa o última cerrada. */
+  sessionMotionStatistics: SessionMotionStatistics | null;
   snapshot: TrackingSnapshot;
   events: TrackingDiagnosticEvent[];
   analysis: TrackingDiagnosticExportAnalysis;

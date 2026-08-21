@@ -5,6 +5,7 @@ import * as Device from 'expo-device';
 import { AppState } from 'react-native';
 
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import type { SessionMotionStatistics } from '@/types/sessionMotionStatistics';
 import type { SessionSpeedStatistics } from '@/types/sessionSpeedStatistics';
 import type {
   TrackingDiagnosticEvent,
@@ -17,10 +18,17 @@ import type {
 } from '@/types/trackingDiagnostics';
 import { EMPTY_TRACKING_STATISTICS } from '@/types/trackingDiagnostics';
 import {
+  applyMotionWindowToSession,
+  markSessionMotionEnded,
+  refreshSessionDuration,
+  resolveSessionMotionBucket,
+} from '@/utils/sessionMotionStatistics';
+import {
   applySpeedStatEventToCounters,
   markSessionSpeedEnded,
   resolveSessionSpeedBucket,
 } from '@/utils/sessionSpeedStatistics';
+import type { MotionWindowSummary } from '@/utils/motionWindowAggregator';
 import { analyzeTrackingDiagnostics } from '@/utils/trackingDiagnosticAnalyzer';
 
 const EVENTS_KEY = 'rutafy_tracking_diag_events';
@@ -29,6 +37,8 @@ const STATS_KEY = 'rutafy_tracking_diag_stats';
 const END_REASON_KEY = 'rutafy_tracking_diag_end_reason';
 /** Speed 2A.2.1 — un solo bucket: sesión activa o última finalizada. */
 const SESSION_SPEED_STATS_KEY = 'rutafy_tracking_diag_session_speed_stats';
+/** Speed 2B.0 — motion foreground-only, sesión activa o última finalizada. */
+const SESSION_MOTION_STATS_KEY = 'rutafy_tracking_diag_session_motion_stats';
 
 const MAX_EVENTS = 100;
 const STALE_THRESHOLD_MS = 180_000;
@@ -269,6 +279,85 @@ export async function getSessionSpeedStatistics(): Promise<SessionSpeedStatistic
   return readJson<SessionSpeedStatistics | null>(SESSION_SPEED_STATS_KEY, null);
 }
 
+/**
+ * Inicia o continúa el bucket de sesión Motion (2B.0).
+ * Misma sessionId → conserva; distinta → cero.
+ */
+export function beginSessionMotionStatistics(sessionId: string): void {
+  if (!sessionId.trim()) return;
+  enqueuePersist(async () => {
+    const existing = await readJson<SessionMotionStatistics | null>(
+      SESSION_MOTION_STATS_KEY,
+      null,
+    );
+    const { stats } = resolveSessionMotionBucket(existing, sessionId);
+    await writeJson(SESSION_MOTION_STATS_KEY, refreshSessionDuration(stats));
+  });
+}
+
+/** Marca endedAt; no borra el bucket (export post-captura). */
+export async function endSessionMotionStatistics(): Promise<void> {
+  await runOnPersistChain(async () => {
+    const existing = await readJson<SessionMotionStatistics | null>(
+      SESSION_MOTION_STATS_KEY,
+      null,
+    );
+    if (!existing) return;
+    await writeJson(SESSION_MOTION_STATS_KEY, markSessionMotionEnded(existing));
+  });
+}
+
+export async function getSessionMotionStatistics(): Promise<SessionMotionStatistics | null> {
+  return readJson<SessionMotionStatistics | null>(SESSION_MOTION_STATS_KEY, null);
+}
+
+/** Patch atómico del bucket motion (misma sessionId). */
+export function patchSessionMotionStatistics(
+  sessionId: string,
+  updater: (stats: SessionMotionStatistics) => SessionMotionStatistics,
+): void {
+  if (!sessionId.trim()) return;
+  enqueuePersist(async () => {
+    const existing = await readJson<SessionMotionStatistics | null>(
+      SESSION_MOTION_STATS_KEY,
+      null,
+    );
+    if (!existing || existing.sessionId !== sessionId) return;
+    const next = refreshSessionDuration(updater(existing));
+    await writeJson(SESSION_MOTION_STATS_KEY, next);
+  });
+}
+
+function motionWindowFromDetail(
+  detail?: Record<string, unknown>,
+): MotionWindowSummary | null {
+  if (!detail) return null;
+  const sampleCount = detail.sampleCount;
+  if (typeof sampleCount !== 'number' || !Number.isFinite(sampleCount)) return null;
+  return {
+    sampleCount,
+    validSampleCount:
+      typeof detail.validSampleCount === 'number' ? detail.validSampleCount : 0,
+    invalidSampleCount:
+      typeof detail.invalidSampleCount === 'number' ? detail.invalidSampleCount : 0,
+    meanMagnitudeG:
+      typeof detail.meanMagnitudeG === 'number' ? detail.meanMagnitudeG : null,
+    dynamicAccelMeanG:
+      typeof detail.dynamicAccelMeanG === 'number' ? detail.dynamicAccelMeanG : null,
+    dynamicAccelRmsG:
+      typeof detail.dynamicAccelRmsG === 'number' ? detail.dynamicAccelRmsG : null,
+    peakDynamicAccelG:
+      typeof detail.peakDynamicAccelG === 'number' ? detail.peakDynamicAccelG : null,
+    p95DynamicAccelG:
+      typeof detail.p95DynamicAccelG === 'number' ? detail.p95DynamicAccelG : null,
+    windowStartedAt:
+      typeof detail.windowStartedAt === 'string' ? detail.windowStartedAt : '',
+    windowEndedAt: typeof detail.windowEndedAt === 'string' ? detail.windowEndedAt : '',
+    midpointTimestamp:
+      typeof detail.midpointTimestamp === 'string' ? detail.midpointTimestamp : '',
+  };
+}
+
 export function recordTrackingDiagnostic(
   type: string,
   detail?: Record<string, unknown>,
@@ -282,15 +371,17 @@ export function recordTrackingDiagnostic(
     detail: detail && Object.keys(detail).length > 0 ? detail : undefined,
   };
 
-  /** speed-stat-* solo persisten estadísticas; no saturan el ring buffer. */
-  const appendToRingBuffer = !type.startsWith('speed-stat-');
+  /** speed-stat-* / motion-stat-* solo stats; no saturan el ring buffer. */
+  const appendToRingBuffer =
+    !type.startsWith('speed-stat-') && !type.startsWith('motion-stat-');
 
   enqueuePersist(async () => {
-    const [events, stats, snapshot, sessionSpeed] = await Promise.all([
+    const [events, stats, snapshot, sessionSpeed, sessionMotion] = await Promise.all([
       readJson<TrackingDiagnosticEvent[]>(EVENTS_KEY, []),
       readJson<Partial<TrackingStatistics>>(STATS_KEY, EMPTY_TRACKING_STATISTICS),
       readJson<TrackingSnapshot>(SNAPSHOT_KEY, {}),
       readJson<SessionSpeedStatistics | null>(SESSION_SPEED_STATS_KEY, null),
+      readJson<SessionMotionStatistics | null>(SESSION_MOTION_STATS_KEY, null),
     ]);
 
     const nextEvents = appendToRingBuffer ? [...events, event] : [...events];
@@ -314,6 +405,19 @@ export function recordTrackingDiagnostic(
       }
     }
 
+    let nextSessionMotion = sessionMotion;
+    if (
+      sessionId &&
+      sessionMotion &&
+      sessionMotion.sessionId === sessionId &&
+      type === 'motion-stat-window'
+    ) {
+      const window = motionWindowFromDetail(detail);
+      if (window) {
+        nextSessionMotion = applyMotionWindowToSession(sessionMotion, window);
+      }
+    }
+
     const writes: Promise<void>[] = [
       writeJson(EVENTS_KEY, nextEvents),
       writeJson(STATS_KEY, nextStats),
@@ -321,6 +425,9 @@ export function recordTrackingDiagnostic(
     ];
     if (nextSessionSpeed !== sessionSpeed && nextSessionSpeed != null) {
       writes.push(writeJson(SESSION_SPEED_STATS_KEY, nextSessionSpeed));
+    }
+    if (nextSessionMotion !== sessionMotion && nextSessionMotion != null) {
+      writes.push(writeJson(SESSION_MOTION_STATS_KEY, nextSessionMotion));
     }
 
     await Promise.all(writes);
@@ -469,15 +576,23 @@ export function gpsDetailFromPoint(point: {
 }
 
 export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosticExport> {
-  const [events, statistics, snapshot, endReason, localSession, sessionSpeedStatistics] =
-    await Promise.all([
-      getTrackingDiagnosticEvents(MAX_EVENTS),
-      getTrackingStatistics(),
-      getTrackingSnapshot(),
-      getSessionEndReason(),
-      trackingSessionStorage.getActive(),
-      getSessionSpeedStatistics(),
-    ]);
+  const [
+    events,
+    statistics,
+    snapshot,
+    endReason,
+    localSession,
+    sessionSpeedStatistics,
+    sessionMotionStatistics,
+  ] = await Promise.all([
+    getTrackingDiagnosticEvents(MAX_EVENTS),
+    getTrackingStatistics(),
+    getTrackingSnapshot(),
+    getSessionEndReason(),
+    trackingSessionStorage.getActive(),
+    getSessionSpeedStatistics(),
+    getSessionMotionStatistics(),
+  ]);
 
   let batteryLevel: number | null = null;
   let lowPowerMode: boolean | null = null;
@@ -555,6 +670,7 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     },
     statistics,
     sessionSpeedStatistics,
+    sessionMotionStatistics,
     snapshot,
     events,
     analysis,

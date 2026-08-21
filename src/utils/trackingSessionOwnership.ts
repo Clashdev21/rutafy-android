@@ -2,6 +2,10 @@ import axios from 'axios';
 
 import { stopOperatorTrackingAsync } from '@/services/operatorTrackingService';
 import {
+  startMotionTelemetryForSession,
+  stopMotionTelemetryForSession,
+} from '@/services/motionTelemetryService';
+import {
   recordTrackingDiagnostic,
   setSessionEndReason,
   endSessionSpeedStatistics,
@@ -77,6 +81,7 @@ export async function cleanupLocalTrackingSession(reason: string): Promise<void>
   const endReason = mapCleanupToEndReason(reason);
   await setSessionEndReason(endReason);
   recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
+  await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
   await stopOperatorTrackingAsync();
