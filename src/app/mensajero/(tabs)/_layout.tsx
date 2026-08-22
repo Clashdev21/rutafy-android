@@ -13,6 +13,7 @@ export default function MensajeroTabsLayout() {
       }}>
       <Tabs.Screen name="index" options={{ title: 'Inicio' }} />
       <Tabs.Screen name="actividad" options={{ title: 'Actividad' }} />
+      <Tabs.Screen name="operacion" options={{ title: 'Operación' }} />
       <Tabs.Screen name="cuenta" options={{ title: 'Cuenta' }} />
     </Tabs>
   );

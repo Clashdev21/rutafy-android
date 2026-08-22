@@ -30,6 +30,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
+    /** Evita stretch vertical dentro de ScrollView/flex padres (Android). */
+    alignSelf: 'flex-start',
+    maxHeight: 40,
+    justifyContent: 'center',
   },
   chipSelected: {
     backgroundColor: 'rgba(22,163,74,0.1)',

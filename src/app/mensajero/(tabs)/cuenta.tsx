@@ -1,19 +1,16 @@
-import { type Href, router } from 'expo-router';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
-import { PushDiagnosticsPanel } from '@/components/notifications/PushDiagnosticsPanel';
 import { NotificationPreferencesSection } from '@/components/notifications/NotificationPreferencesSection';
 import { RutafyCuentaScreen } from '@/components/account/RutafyCuentaScreen';
 import { RutafyCard } from '@/components/rutafy/RutafyCard';
-import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
+import { RutafyColors } from '@/constants/rutafyTheme';
 import { useMensajeroOperationsContext } from '@/contexts/MensajeroOperationsContext';
 import { Spacing } from '@/constants/theme';
 
 export default function MensajeroCuentaScreen() {
   const { user, logout, isLoading: authLoading } = useAuth();
-  const { isOnline, availabilitySyncing, canOperate, error, toggleAvailability } =
-    useMensajeroOperationsContext();
+  const { isOnline } = useMensajeroOperationsContext();
 
   return (
     <RutafyCuentaScreen
@@ -21,56 +18,26 @@ export default function MensajeroCuentaScreen() {
       roleLabel="Mensajero"
       onLogout={() => void logout()}
       logoutLoading={authLoading}>
-      <RutafyCard style={styles.availabilityCard}>
-        <Text style={styles.cardTitle}>Disponibilidad</Text>
+      <RutafyCard style={styles.statusCard}>
+        <Text style={styles.cardTitle}>Estado operativo</Text>
         <Text style={styles.cardBody}>
           {isOnline
-            ? 'Estás en línea y puedes recibir ofertas nuevas.'
-            : 'Estás desconectado. Activa tu disponibilidad desde Inicio o aquí.'}
+            ? 'Disponible — gestiona tu disponibilidad desde Inicio.'
+            : 'No disponible — actívate desde Inicio para recibir ofertas.'}
         </Text>
-
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <Pressable
-          style={[styles.toggle, isOnline && styles.toggleOn, (!canOperate || availabilitySyncing) && styles.disabled]}
-          onPress={() => void toggleAvailability()}
-          disabled={!canOperate || availabilitySyncing}>
-          {availabilitySyncing ? (
-            <ActivityIndicator color={isOnline ? '#fff' : RutafyColors.textPrimary} />
-          ) : (
-            <Text style={[styles.toggleLabel, isOnline && styles.toggleLabelOn]}>
-              {isOnline ? 'Pasar a offline' : 'Ponerte en línea'}
-            </Text>
-          )}
-        </Pressable>
-      </RutafyCard>
-
-      <RutafyCard style={styles.linkCard}>
-        <Text style={styles.cardTitle}>Piloto logístico</Text>
-        <Text style={styles.cardBody}>
-          Modo operador para captura de ruta GPS (terminal / tractor).
-        </Text>
-        <Pressable
-          style={styles.linkBtn}
-          onPress={() => router.push('/captura-logistica' as Href)}>
-          <Text style={styles.linkBtnText}>Captura logística</Text>
-        </Pressable>
-        <Pressable
-          style={styles.linkBtnOutline}
-          onPress={() => router.push('/captura-logistica/historial' as Href)}>
-          <Text style={styles.linkBtnText}>Historial de capturas</Text>
-        </Pressable>
+        <View style={styles.badgeRow}>
+          <View style={[styles.dot, isOnline ? styles.dotOn : styles.dotOff]} />
+          <Text style={styles.badgeLabel}>{isOnline ? 'En línea' : 'Offline'}</Text>
+        </View>
       </RutafyCard>
 
       <NotificationPreferencesSection />
-
-      <PushDiagnosticsPanel />
     </RutafyCuentaScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  availabilityCard: { gap: Spacing.two },
+  statusCard: { gap: Spacing.two },
   cardTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -81,39 +48,21 @@ const styles = StyleSheet.create({
     color: RutafyColors.textSecondary,
     lineHeight: 20,
   },
-  error: { fontSize: 13, color: RutafyColors.danger },
-  toggle: {
-    borderWidth: 1,
-    borderColor: RutafyColors.borderMuted,
-    borderRadius: RutafyRadius.button,
-    paddingVertical: Spacing.three,
+  badgeRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  toggleOn: {
-    backgroundColor: RutafyColors.brand,
-    borderColor: RutafyColors.brand,
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
-  toggleLabel: { fontWeight: '600', color: RutafyColors.textPrimary },
-  toggleLabelOn: { color: RutafyColors.white },
-  disabled: { opacity: 0.6 },
-  linkCard: { gap: Spacing.two, marginTop: Spacing.two },
-  linkBtn: {
-    borderWidth: 1,
-    borderColor: RutafyColors.brand,
-    borderRadius: RutafyRadius.button,
-    paddingVertical: Spacing.two,
-    alignItems: 'center',
-  },
-  linkBtnOutline: {
-    borderWidth: 1,
-    borderColor: RutafyColors.borderMuted,
-    borderRadius: RutafyRadius.button,
-    paddingVertical: Spacing.two,
-    alignItems: 'center',
-    backgroundColor: RutafyColors.white,
-  },
-  linkBtnText: {
+  dotOn: { backgroundColor: RutafyColors.success },
+  dotOff: { backgroundColor: RutafyColors.textSecondary },
+  badgeLabel: {
+    fontSize: 14,
     fontWeight: '600',
-    color: RutafyColors.brand,
+    color: RutafyColors.textPrimary,
   },
 });

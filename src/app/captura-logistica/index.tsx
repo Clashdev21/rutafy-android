@@ -209,7 +209,7 @@ export default function CapturaLogisticaScreen() {
             style={[styles.input, styles.notesInput]}
             value={notes}
             onChangeText={setNotes}
-            placeholder="Observaciones del piloto"
+            placeholder="Observaciones (opcional)"
             placeholderTextColor={RutafyColors.textSecondary}
             multiline
             editable={!formDisabled}

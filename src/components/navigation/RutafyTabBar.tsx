@@ -8,6 +8,7 @@ import { fontFamily } from '@/theme/typography';
 const TAB_CONFIG: Record<string, { title: string; icon: AppIconName }> = {
   index: { title: 'Inicio', icon: 'home' },
   actividad: { title: 'Actividad', icon: 'history' },
+  operacion: { title: 'Operación', icon: 'route' },
   cuenta: { title: 'Cuenta', icon: 'person' },
 };
 
@@ -87,7 +88,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     gap: 3,
-    paddingVertical: 4,
+    paddingVertical: 6,
+    minHeight: 48,
   },
   indicator: {
     width: 0,

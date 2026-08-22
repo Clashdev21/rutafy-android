@@ -17,6 +17,14 @@ export default function MensajeroLayout() {
           options={{ title: 'Detalle', headerShown: false }}
         />
         <Stack.Screen
+          name="dispositivo/index"
+          options={{ title: 'Estado del dispositivo', headerShown: false }}
+        />
+        <Stack.Screen
+          name="dispositivo/notificaciones"
+          options={{ title: 'Notificaciones push', headerShown: false }}
+        />
+        <Stack.Screen
           name="[id]"
           options={{ title: 'Detalle', headerShown: true, ...RutafyStackHeaderOptions }}
         />

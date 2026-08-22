@@ -52,9 +52,12 @@ export function MensajeroAssignedScreen({
     <View style={styles.container}>
       <View style={styles.mapArea}>
         <View style={styles.mapPlaceholder}>
-          <AppIcon name="map" size={40} color={colors.primary} />
+          <AppIcon name="map" size={36} color={colors.subtitle} />
+          <AppText variant="heading" style={styles.mapTitle}>
+            Mapa operacional
+          </AppText>
           <AppText variant="caption" style={styles.mapHint}>
-            Vista de ruta — mapa en vivo próximamente
+            La vista de mapa se activará en una próxima actualización.
           </AppText>
         </View>
       </View>
@@ -116,9 +119,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
-    borderStyle: 'dashed',
+    paddingHorizontal: spacing.xl,
   },
-  mapHint: { textAlign: 'center', paddingHorizontal: spacing.xl },
+  mapTitle: { textAlign: 'center', color: colors.navy },
+  mapHint: { textAlign: 'center' },
   panel: {
     flex: 3,
     backgroundColor: colors.surface,

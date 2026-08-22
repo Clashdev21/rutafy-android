@@ -1,14 +1,17 @@
 import { type Href, router } from 'expo-router';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
-import { RutafyCuentaScreen } from '@/components/account/RutafyCuentaScreen';
 import { NotificationPreferencesSection } from '@/components/notifications/NotificationPreferencesSection';
 import { PushDiagnosticsPanel } from '@/components/notifications/PushDiagnosticsPanel';
-import { RutafyCard } from '@/components/rutafy/RutafyCard';
-import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
+import { RutafyCuentaScreen } from '@/components/account/RutafyCuentaScreen';
+import { SettingsRow, SettingsSection } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 
+/**
+ * Cuenta transportista — sin tab Operación.
+ * Captura logística accesible aquí sin copy "Piloto logístico".
+ */
 export default function TransportistaCuentaScreen() {
   const { user, logout, isLoading } = useAuth();
 
@@ -18,59 +21,29 @@ export default function TransportistaCuentaScreen() {
       roleLabel="Transportista"
       onLogout={() => void logout()}
       logoutLoading={isLoading}>
-      <RutafyCard style={styles.linkCard}>
-        <Text style={styles.cardTitle}>Piloto logístico</Text>
-        <Text style={styles.cardBody}>
-          Modo operador para captura de ruta GPS (terminal / tractor).
-        </Text>
-        <Pressable
-          style={styles.linkBtn}
-          onPress={() => router.push('/captura-logistica' as Href)}>
-          <Text style={styles.linkBtnText}>Captura logística</Text>
-        </Pressable>
-        <Pressable
-          style={styles.linkBtnOutline}
-          onPress={() => router.push('/captura-logistica/historial' as Href)}>
-          <Text style={styles.linkBtnText}>Historial de capturas</Text>
-        </Pressable>
-      </RutafyCard>
+      <View style={styles.block}>
+        <SettingsSection title="Captura logística">
+          <SettingsRow
+            icon="route"
+            title="Captura logística"
+            subtitle="Iniciar y administrar seguimiento"
+            onPress={() => router.push('/captura-logistica' as Href)}
+          />
+          <SettingsRow
+            icon="history"
+            title="Historial de capturas"
+            subtitle="Consultar sesiones anteriores"
+            onPress={() => router.push('/captura-logistica/historial' as Href)}
+          />
+        </SettingsSection>
+      </View>
 
       <NotificationPreferencesSection />
-
       <PushDiagnosticsPanel />
     </RutafyCuentaScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  linkCard: { gap: Spacing.two, marginTop: Spacing.two },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: RutafyColors.navy,
-  },
-  cardBody: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-    lineHeight: 20,
-  },
-  linkBtn: {
-    borderWidth: 1,
-    borderColor: RutafyColors.brand,
-    borderRadius: RutafyRadius.button,
-    paddingVertical: Spacing.two,
-    alignItems: 'center',
-  },
-  linkBtnOutline: {
-    borderWidth: 1,
-    borderColor: RutafyColors.borderMuted,
-    borderRadius: RutafyRadius.button,
-    paddingVertical: Spacing.two,
-    alignItems: 'center',
-    backgroundColor: RutafyColors.white,
-  },
-  linkBtnText: {
-    fontWeight: '600',
-    color: RutafyColors.brand,
-  },
+  block: { gap: Spacing.two, marginTop: Spacing.one },
 });

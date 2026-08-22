@@ -10,3 +10,5 @@ export { AppHeader } from '@/components/ui/AppHeader';
 export { AppEmptyState } from '@/components/ui/AppEmptyState';
 export { AppSkeleton, AppSkeletonCard } from '@/components/ui/AppSkeleton';
 export { AppDialog } from '@/components/ui/AppDialog';
+export { SettingsRow } from '@/components/ui/SettingsRow';
+export { SettingsSection } from '@/components/ui/SettingsSection';

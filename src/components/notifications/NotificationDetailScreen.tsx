@@ -1,6 +1,6 @@
 import { useLocalSearchParams, type Href, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppButton, AppHeader, AppText } from '@/components/ui';
@@ -13,9 +13,7 @@ import { getApiErrorMessage } from '@/utils/errors';
 import {
   formatNotificationAbsoluteTime,
   getNotificationCategoryLabel,
-  getNotificationPriorityLabel,
   isNotificationExpired,
-  isNotificationUnread,
 } from '@/utils/notificationFormatters';
 import { navigateInboxNotification } from '@/utils/notificationNavigation';
 import { useAuth } from '@/auth/useAuth';
@@ -23,6 +21,15 @@ import { useAuth } from '@/auth/useAuth';
 type Props = {
   role: 'mensajero' | 'transportista';
 };
+
+function resolvePrimaryCtaLabel(notification: InboxNotification): string {
+  if (notification.event_type === 'dispatch_offer') return 'Ver oferta';
+  if (notification.category === 'service' || notification.deep_link?.includes('service')) {
+    return 'Ver servicio';
+  }
+  if (notification.deep_link) return 'Abrir';
+  return 'Ver detalle';
+}
 
 export function NotificationDetailScreen({ role }: Props) {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -46,7 +53,6 @@ export function NotificationDetailScreen({ role }: Props) {
       if (!item.read_at) {
         await markRead(item.notification_id);
       }
-      // markOpened es idempotente (opened_at / localOpenedIds / inFlight).
       await markOpened(item.notification_id);
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo cargar la notificación'));
@@ -82,7 +88,9 @@ export function NotificationDetailScreen({ role }: Props) {
   }
 
   const expired = isNotificationExpired(notification);
-  const unread = isNotificationUnread(notification);
+  const ctaLabel = expired
+    ? `${resolvePrimaryCtaLabel(notification)} (expirada)`
+    : resolvePrimaryCtaLabel(notification);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -90,31 +98,16 @@ export function NotificationDetailScreen({ role }: Props) {
         <AppHeader
           title="Detalle"
           subtitle={getNotificationCategoryLabel(notification.category)}
-          right={
-            <AppButton
-              label="Volver"
-              variant="ghost"
-              onPress={() => router.back()}
-            />
-          }
         />
+
         <AppText variant="title">{notification.title}</AppText>
-        <AppText variant="body" color={colors.subtitle}>
+        <AppText variant="caption" color={colors.subtitle}>
+          {formatNotificationAbsoluteTime(notification.created_at)}
+          {expired ? ' · Expirada' : ''}
+        </AppText>
+        <AppText variant="body" color={colors.subtitle} style={styles.body}>
           {notification.body || 'Sin detalle'}
         </AppText>
-
-        <View style={styles.meta}>
-          <AppText variant="caption" color={colors.subtitle}>
-            Fecha: {formatNotificationAbsoluteTime(notification.created_at)}
-          </AppText>
-          <AppText variant="caption" color={colors.subtitle}>
-            Prioridad: {getNotificationPriorityLabel(notification.priority)}
-          </AppText>
-          <AppText variant="caption" color={colors.subtitle}>
-            Estado: {expired ? 'Expirada' : notification.status}
-            {unread ? ' · No leída' : ' · Leída'}
-          </AppText>
-        </View>
 
         {error ? (
           <AppText variant="caption" color={colors.danger}>
@@ -123,7 +116,7 @@ export function NotificationDetailScreen({ role }: Props) {
         ) : null}
 
         <AppButton
-          label={expired ? 'Ver detalle (expirada)' : 'Abrir'}
+          label={ctaLabel}
           disabled={busy}
           onPress={() => {
             setBusy(true);
@@ -135,10 +128,10 @@ export function NotificationDetailScreen({ role }: Props) {
           }}
         />
 
-        <AppButton
-          label="Archivar"
-          variant="secondary"
-          loading={busy}
+        <Pressable
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Archivar notificación"
           onPress={() => {
             void (async () => {
               setBusy(true);
@@ -152,7 +145,11 @@ export function NotificationDetailScreen({ role }: Props) {
               }
             })();
           }}
-        />
+          style={styles.archiveBtn}>
+          <AppText variant="bodyMedium" color={colors.subtitle}>
+            Archivar
+          </AppText>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -169,8 +166,10 @@ const styles = StyleSheet.create({
     gap: spacing.base,
     paddingBottom: spacing['3xl'],
   },
-  meta: {
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
+  body: { lineHeight: 22 },
+  archiveBtn: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
