@@ -5,6 +5,7 @@ import * as Device from 'expo-device';
 import { AppState } from 'react-native';
 
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import type { SessionMotionTimeline, MotionTimelineBucket } from '@/types/motionActivity';
 import type { SessionMotionStatistics } from '@/types/sessionMotionStatistics';
 import type { SessionSpeedStatistics } from '@/types/sessionSpeedStatistics';
 import type {
@@ -18,6 +19,7 @@ import type {
 } from '@/types/trackingDiagnostics';
 import { EMPTY_TRACKING_STATISTICS } from '@/types/trackingDiagnostics';
 import {
+  applyMotionCoverageGap,
   applyMotionWindowToSession,
   markSessionMotionEnded,
   refreshSessionDuration,
@@ -29,6 +31,7 @@ import {
   resolveSessionSpeedBucket,
 } from '@/utils/sessionSpeedStatistics';
 import type { MotionWindowSummary } from '@/utils/motionWindowAggregator';
+import { MotionTimelineAggregator } from '@/utils/motionTimelineAggregator';
 import { analyzeTrackingDiagnostics } from '@/utils/trackingDiagnosticAnalyzer';
 
 const EVENTS_KEY = 'rutafy_tracking_diag_events';
@@ -39,6 +42,8 @@ const END_REASON_KEY = 'rutafy_tracking_diag_end_reason';
 const SESSION_SPEED_STATS_KEY = 'rutafy_tracking_diag_session_speed_stats';
 /** Speed 2B.0 — motion foreground-only, sesión activa o última finalizada. */
 const SESSION_MOTION_STATS_KEY = 'rutafy_tracking_diag_session_motion_stats';
+/** Speed 2B.1 — timeline acotada de la sesión actual/última. */
+const SESSION_MOTION_TIMELINE_KEY = 'rutafy_tracking_diag_session_motion_timeline';
 
 const MAX_EVENTS = 100;
 const STALE_THRESHOLD_MS = 180_000;
@@ -280,18 +285,24 @@ export async function getSessionSpeedStatistics(): Promise<SessionSpeedStatistic
 }
 
 /**
- * Inicia o continúa el bucket de sesión Motion (2B.0).
- * Misma sessionId → conserva; distinta → cero.
+ * Inicia o continúa el bucket de sesión Motion (2B.0/2B.1).
+ * Misma sessionId → conserva; distinta → cero (+ timeline nueva).
  */
 export function beginSessionMotionStatistics(sessionId: string): void {
   if (!sessionId.trim()) return;
   enqueuePersist(async () => {
-    const existing = await readJson<SessionMotionStatistics | null>(
-      SESSION_MOTION_STATS_KEY,
-      null,
-    );
-    const { stats } = resolveSessionMotionBucket(existing, sessionId);
+    const [existing, existingTimeline] = await Promise.all([
+      readJson<SessionMotionStatistics | null>(SESSION_MOTION_STATS_KEY, null),
+      readJson<SessionMotionTimeline | null>(SESSION_MOTION_TIMELINE_KEY, null),
+    ]);
+    const { stats, reset } = resolveSessionMotionBucket(existing, sessionId);
     await writeJson(SESSION_MOTION_STATS_KEY, refreshSessionDuration(stats));
+    if (reset || !existingTimeline || existingTimeline.sessionId !== sessionId) {
+      await writeJson(SESSION_MOTION_TIMELINE_KEY, {
+        sessionId,
+        buckets: [],
+      } satisfies SessionMotionTimeline);
+    }
   });
 }
 
@@ -311,6 +322,39 @@ export async function getSessionMotionStatistics(): Promise<SessionMotionStatist
   return readJson<SessionMotionStatistics | null>(SESSION_MOTION_STATS_KEY, null);
 }
 
+export async function getSessionMotionTimeline(): Promise<SessionMotionTimeline | null> {
+  return readJson<SessionMotionTimeline | null>(SESSION_MOTION_TIMELINE_KEY, null);
+}
+
+/** Append buckets cerrados a la timeline de la sesión. */
+export function appendSessionMotionTimelineBuckets(
+  sessionId: string,
+  buckets: MotionTimelineBucket[],
+): void {
+  if (!sessionId.trim() || buckets.length === 0) return;
+  enqueuePersist(async () => {
+    const existing = await readJson<SessionMotionTimeline | null>(
+      SESSION_MOTION_TIMELINE_KEY,
+      null,
+    );
+    if (!existing || existing.sessionId !== sessionId) {
+      await writeJson(SESSION_MOTION_TIMELINE_KEY, {
+        sessionId,
+        buckets: MotionTimelineAggregator.capBuckets(buckets),
+      } satisfies SessionMotionTimeline);
+      return;
+    }
+    const next = MotionTimelineAggregator.capBuckets([
+      ...existing.buckets,
+      ...buckets,
+    ]);
+    await writeJson(SESSION_MOTION_TIMELINE_KEY, {
+      sessionId,
+      buckets: next,
+    } satisfies SessionMotionTimeline);
+  });
+}
+
 /** Patch atómico del bucket motion (misma sessionId). */
 export function patchSessionMotionStatistics(
   sessionId: string,
@@ -326,6 +370,12 @@ export function patchSessionMotionStatistics(
     const next = refreshSessionDuration(updater(existing));
     await writeJson(SESSION_MOTION_STATS_KEY, next);
   });
+}
+
+export function recordMotionCoverageGap(sessionId: string, detail?: Record<string, unknown>): void {
+  if (!sessionId.trim()) return;
+  patchSessionMotionStatistics(sessionId, (stats) => applyMotionCoverageGap(stats));
+  recordTrackingDiagnostic('motion-coverage-gap', detail, sessionId);
 }
 
 function motionWindowFromDetail(
@@ -414,7 +464,8 @@ export function recordTrackingDiagnostic(
     ) {
       const window = motionWindowFromDetail(detail);
       if (window) {
-        nextSessionMotion = applyMotionWindowToSession(sessionMotion, window);
+        const applied = applyMotionWindowToSession(sessionMotion, window);
+        nextSessionMotion = applied.stats;
       }
     }
 
@@ -584,6 +635,7 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     localSession,
     sessionSpeedStatistics,
     sessionMotionStatistics,
+    sessionMotionTimeline,
   ] = await Promise.all([
     getTrackingDiagnosticEvents(MAX_EVENTS),
     getTrackingStatistics(),
@@ -592,6 +644,7 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     trackingSessionStorage.getActive(),
     getSessionSpeedStatistics(),
     getSessionMotionStatistics(),
+    getSessionMotionTimeline(),
   ]);
 
   let batteryLevel: number | null = null;
@@ -671,6 +724,7 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     statistics,
     sessionSpeedStatistics,
     sessionMotionStatistics,
+    sessionMotionTimeline,
     snapshot,
     events,
     analysis,

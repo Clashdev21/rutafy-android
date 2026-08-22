@@ -1,4 +1,5 @@
 import type { SessionMotionStatistics } from './sessionMotionStatistics';
+import type { SessionMotionTimeline } from './motionActivity';
 import type { SessionSpeedStatistics } from './sessionSpeedStatistics';
 
 export type TrackingSessionEndReason =
@@ -117,6 +118,8 @@ export interface TrackingDiagnosticExport {
   sessionSpeedStatistics: SessionSpeedStatistics | null;
   /** Speed 2B.0 — motion FG-only, sesión activa o última cerrada. */
   sessionMotionStatistics: SessionMotionStatistics | null;
+  /** Speed 2B.1 — timeline acotada (~30s buckets) de la misma sesión. */
+  sessionMotionTimeline: SessionMotionTimeline | null;
   snapshot: TrackingSnapshot;
   events: TrackingDiagnosticEvent[];
   analysis: TrackingDiagnosticExportAnalysis;

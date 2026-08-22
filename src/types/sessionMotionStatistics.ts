@@ -1,8 +1,10 @@
 /**
- * Session Motion Statistics — Speed 2B.0 (foreground-only, observacional).
+ * Session Motion Statistics — Speed 2B.0 / 2B.1 (foreground-only, observacional).
  *
  * Unidades internas: g (1 g ≈ 9.80665 m/s²). No mezclar con m/s² de Device Info HW.
  */
+
+import type { MotionActivityLevel } from '@/types/motionActivity';
 
 export type SessionMotionStatistics = {
   sessionId: string;
@@ -35,6 +37,25 @@ export type SessionMotionStatistics = {
 
   lastWindowStartedAt: string | null;
   lastWindowEndedAt: string | null;
+
+  /** Speed 2B.1 — actividad experimental (no operacional). */
+  lowActivityWindows: number;
+  mediumActivityWindows: number;
+  highActivityWindows: number;
+  lowActivityRatio: number | null;
+  mediumActivityRatio: number | null;
+  highActivityRatio: number | null;
+  longestLowActivitySequenceWindows: number;
+  longestHighActivitySequenceWindows: number;
+  activityTransitions: number;
+  lastActivityLevel: MotionActivityLevel | null;
+  /** Picos altos sin semántica (bache / manejo / frenada). */
+  highPeakWindows: number;
+  coverageGapCount: number;
+
+  /** rachas internas (persistidas para restore). */
+  currentLowSequenceWindows: number;
+  currentHighSequenceWindows: number;
 };
 
 export const EMPTY_SESSION_MOTION_COUNTERS: Omit<
@@ -58,4 +79,18 @@ export const EMPTY_SESSION_MOTION_COUNTERS: Omit<
   foregroundCoverageRatio: null,
   lastWindowStartedAt: null,
   lastWindowEndedAt: null,
+  lowActivityWindows: 0,
+  mediumActivityWindows: 0,
+  highActivityWindows: 0,
+  lowActivityRatio: null,
+  mediumActivityRatio: null,
+  highActivityRatio: null,
+  longestLowActivitySequenceWindows: 0,
+  longestHighActivitySequenceWindows: 0,
+  activityTransitions: 0,
+  lastActivityLevel: null,
+  highPeakWindows: 0,
+  coverageGapCount: 0,
+  currentLowSequenceWindows: 0,
+  currentHighSequenceWindows: 0,
 };

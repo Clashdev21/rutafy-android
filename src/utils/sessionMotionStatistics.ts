@@ -1,9 +1,12 @@
 /**
- * Lógica pura Session Motion Statistics — Speed 2B.0.
+ * Lógica pura Session Motion Statistics — Speed 2B.0 / 2B.1.
  */
 
+import type { MotionActivityClassification } from '@/types/motionActivity';
 import type { SessionMotionStatistics } from '@/types/sessionMotionStatistics';
 import { EMPTY_SESSION_MOTION_COUNTERS } from '@/types/sessionMotionStatistics';
+import { MOTION_HIGH_PEAK_MIN_G } from '@/types/motionActivityThresholds';
+import { classifyMotionActivity } from '@/utils/motionActivityClassifier';
 import type { MotionWindowSummary } from '@/utils/motionWindowAggregator';
 
 export function createEmptySessionMotionStatistics(
@@ -34,6 +37,7 @@ export function resolveSessionMotionBucket(
   if (!shouldResetSessionMotionBucket(existing, sessionId) && existing) {
     return {
       stats: {
+        ...EMPTY_SESSION_MOTION_COUNTERS,
         ...existing,
         endedAt: null,
       },
@@ -73,6 +77,25 @@ function incrementRunningAvg(
   return base + (value - base) / count;
 }
 
+function refreshActivityRatios(stats: SessionMotionStatistics): SessionMotionStatistics {
+  const classified =
+    stats.lowActivityWindows + stats.mediumActivityWindows + stats.highActivityWindows;
+  if (classified <= 0) {
+    return {
+      ...stats,
+      lowActivityRatio: null,
+      mediumActivityRatio: null,
+      highActivityRatio: null,
+    };
+  }
+  return {
+    ...stats,
+    lowActivityRatio: stats.lowActivityWindows / classified,
+    mediumActivityRatio: stats.mediumActivityWindows / classified,
+    highActivityRatio: stats.highActivityWindows / classified,
+  };
+}
+
 export function refreshSessionDuration(
   stats: SessionMotionStatistics,
   nowMs = Date.now(),
@@ -88,18 +111,35 @@ export function refreshSessionDuration(
     sessionDurationMs > 0
       ? Math.min(1, Math.max(0, stats.foregroundObservedMs / sessionDurationMs))
       : null;
-  return {
+  return refreshActivityRatios({
     ...stats,
     sessionDurationMs,
     foregroundCoverageRatio,
-  };
+  });
 }
 
+/**
+ * Aplica ventana + clasificación experimental.
+ * Devuelve { stats, classification, transition? }.
+ */
 export function applyMotionWindowToSession(
   stats: SessionMotionStatistics,
   window: MotionWindowSummary,
-): SessionMotionStatistics {
-  const next = { ...stats };
+  classification?: MotionActivityClassification,
+): {
+  stats: SessionMotionStatistics;
+  classification: MotionActivityClassification;
+  transition: { from: NonNullable<SessionMotionStatistics['lastActivityLevel']>; to: NonNullable<SessionMotionStatistics['lastActivityLevel']> } | null;
+} {
+  const classified =
+    classification ??
+    classifyMotionActivity({
+      dynamicAccelRmsG: window.dynamicAccelRmsG,
+      p95DynamicAccelG: window.p95DynamicAccelG,
+      peakDynamicAccelG: window.peakDynamicAccelG,
+    });
+
+  let next: SessionMotionStatistics = { ...stats };
   next.motionWindows += 1;
   next.accelerometerSamples += window.sampleCount;
   next.validAccelerometerSamples += window.validSampleCount;
@@ -124,6 +164,9 @@ export function applyMotionWindowToSession(
       next.maxPeakDynamicAccelG == null
         ? window.peakDynamicAccelG
         : Math.max(next.maxPeakDynamicAccelG, window.peakDynamicAccelG);
+    if (window.peakDynamicAccelG >= MOTION_HIGH_PEAK_MIN_G) {
+      next.highPeakWindows += 1;
+    }
   }
 
   if (window.dynamicAccelMeanG != null && Number.isFinite(window.dynamicAccelMeanG)) {
@@ -134,7 +177,46 @@ export function applyMotionWindowToSession(
     );
   }
 
-  return refreshSessionDuration(next);
+  let transition: {
+    from: NonNullable<SessionMotionStatistics['lastActivityLevel']>;
+    to: NonNullable<SessionMotionStatistics['lastActivityLevel']>;
+  } | null = null;
+
+  const level = classified.activityLevel;
+  if (level != null) {
+    if (level === 'low') next.lowActivityWindows += 1;
+    else if (level === 'medium') next.mediumActivityWindows += 1;
+    else next.highActivityWindows += 1;
+
+    if (next.lastActivityLevel != null && next.lastActivityLevel !== level) {
+      next.activityTransitions += 1;
+      transition = { from: next.lastActivityLevel, to: level };
+    }
+
+    if (level === 'low') {
+      next.currentLowSequenceWindows += 1;
+      next.currentHighSequenceWindows = 0;
+      next.longestLowActivitySequenceWindows = Math.max(
+        next.longestLowActivitySequenceWindows,
+        next.currentLowSequenceWindows,
+      );
+    } else if (level === 'high') {
+      next.currentHighSequenceWindows += 1;
+      next.currentLowSequenceWindows = 0;
+      next.longestHighActivitySequenceWindows = Math.max(
+        next.longestHighActivitySequenceWindows,
+        next.currentHighSequenceWindows,
+      );
+    } else {
+      next.currentLowSequenceWindows = 0;
+      next.currentHighSequenceWindows = 0;
+    }
+
+    next.lastActivityLevel = level;
+  }
+
+  next = refreshSessionDuration(next);
+  return { stats: next, classification: classified, transition };
 }
 
 export function applyForegroundObservedDelta(
@@ -152,4 +234,16 @@ export function applyForegroundObservedDelta(
     },
     nowMs,
   );
+}
+
+/** Gap FG sin sensor: cuenta el hueco; NO clasifica como low. */
+export function applyMotionCoverageGap(
+  stats: SessionMotionStatistics,
+): SessionMotionStatistics {
+  return refreshSessionDuration({
+    ...stats,
+    coverageGapCount: stats.coverageGapCount + 1,
+    currentLowSequenceWindows: 0,
+    currentHighSequenceWindows: 0,
+  });
 }
