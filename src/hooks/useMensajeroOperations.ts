@@ -461,6 +461,7 @@ export function useMensajeroOperations(
     canOperate,
     gpsStatus: locationHeartbeat.gpsStatus,
     hasLocationFix: locationHeartbeat.hasLocationFix,
+    lastKnownPosition: locationHeartbeat.lastKnownPosition,
     toggleAvailability,
     acceptOffer,
     omitFirstOffer,

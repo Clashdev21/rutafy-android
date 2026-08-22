@@ -1,9 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getServiceCode } from '@/components/mensajero/serviceDisplay';
+import { formatServiceTypeLabel, getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
-import { RutafyColors, RutafyRadius } from '@/constants/rutafyTheme';
+import { RutafyColors } from '@/constants/rutafyTheme';
 import { Spacing } from '@/constants/theme';
 import type { Service } from '@/types/service';
 
@@ -15,15 +14,18 @@ type Props = {
   disabled?: boolean;
 };
 
-function RouteBlock({ label, value }: { label: string; value: string }) {
+function MetaLine({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.routeBlock}>
-      <Text style={styles.routeLabel}>{label}</Text>
-      <Text style={styles.routeValue}>{value}</Text>
+    <View style={styles.metaBlock}>
+      <Text style={styles.metaLabel}>{label}</Text>
+      <Text style={styles.metaValue} numberOfLines={2}>
+        {value}
+      </Text>
     </View>
   );
 }
 
+/** Panel OFFER sobre mapa (MAP 1A). */
 export function MensajeroOfferScreen({
   offer,
   onAccept,
@@ -32,114 +34,93 @@ export function MensajeroOfferScreen({
   disabled,
 }: Props) {
   const code = getServiceCode(offer);
+  const typeLabel = formatServiceTypeLabel(offer.service_type);
+  const distance =
+    offer.estimated_route_distance_km != null && Number.isFinite(offer.estimated_route_distance_km)
+      ? `${offer.estimated_route_distance_km.toFixed(1)} km`
+      : null;
+  const duration =
+    offer.estimated_route_duration_minutes != null &&
+    Number.isFinite(offer.estimated_route_duration_minutes)
+      ? `${Math.round(offer.estimated_route_duration_minutes)} min`
+      : null;
+  const routeMeta = [distance, duration].filter(Boolean).join(' · ');
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Nueva oferta</Text>
-          <Text style={styles.headerSubtitle}>Acepta antes de que expire</Text>
-        </View>
-      </SafeAreaView>
+    <View style={styles.panel}>
+      <Text style={styles.kicker}>Nueva oferta</Text>
+      <Text style={styles.title}>
+        {typeLabel} · {code}
+      </Text>
+      <MetaLine label="Recoger" value={offer.origin} />
+      <MetaLine label="Entregar" value={offer.destination} />
+      {routeMeta ? <Text style={styles.routeMeta}>{routeMeta}</Text> : null}
 
-      <View style={styles.body}>
-        <View style={styles.codeCard}>
-          <Text style={styles.codeLabel}>Código de servicio</Text>
-          <Text style={styles.codeValue}>{code}</Text>
+      <View style={styles.actions}>
+        <View style={styles.actionFlex}>
+          <RutafyButton
+            label={isAccepting ? 'Aceptando…' : 'Aceptar'}
+            onPress={onAccept}
+            loading={isAccepting}
+            disabled={disabled || isAccepting}
+          />
         </View>
-        <RouteBlock label="RECOGER EN" value={offer.origin} />
-        <RouteBlock label="ENTREGAR EN" value={offer.destination} />
+        <View style={styles.actionFlex}>
+          <RutafyButton
+            label="Rechazar"
+            variant="secondary"
+            onPress={onOmit}
+            disabled={disabled || isAccepting}
+          />
+        </View>
       </View>
-
-      <SafeAreaView style={styles.footer} edges={['bottom', 'left', 'right']}>
-        <RutafyButton
-          label={isAccepting ? 'Aceptando…' : 'Aceptar'}
-          onPress={onAccept}
-          loading={isAccepting}
-          disabled={disabled || isAccepting}
-        />
-        <RutafyButton
-          label="Omitir"
-          variant="secondary"
-          onPress={onOmit}
-          disabled={disabled || isAccepting}
-        />
-      </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: RutafyColors.surface,
+  panel: {
+    gap: Spacing.two,
   },
-  safe: {
-    borderBottomWidth: 1,
-    borderBottomColor: RutafyColors.border,
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
-    gap: Spacing.one,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: RutafyColors.textPrimary,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: RutafyColors.textSecondary,
-  },
-  body: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.four,
-    gap: Spacing.four,
-  },
-  codeCard: {
-    backgroundColor: RutafyColors.surfaceMuted,
-    borderRadius: RutafyRadius.card,
-    borderWidth: 1,
-    borderColor: RutafyColors.border,
-    padding: Spacing.four,
-    gap: Spacing.one,
-  },
-  codeLabel: {
-    fontSize: 11,
+  kicker: {
+    fontSize: 12,
     fontWeight: '600',
-    letterSpacing: 0.8,
-    color: RutafyColors.textSecondary,
+    color: RutafyColors.brand,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  codeValue: {
-    fontSize: 20,
+  title: {
+    fontSize: 17,
     fontWeight: '700',
-    fontFamily: 'monospace',
     color: RutafyColors.navy,
   },
-  routeBlock: { gap: Spacing.one },
-  routeLabel: {
+  metaBlock: {
+    gap: 2,
+  },
+  metaLabel: {
     fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.8,
     color: RutafyColors.textSecondary,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  routeValue: {
-    fontSize: 16,
+  metaValue: {
+    fontSize: 14,
     fontWeight: '600',
     color: RutafyColors.textPrimary,
-    lineHeight: 22,
+    lineHeight: 20,
   },
-  footer: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
+  routeMeta: {
+    fontSize: 12,
+    color: RutafyColors.textSecondary,
+    fontWeight: '500',
+  },
+  actions: {
+    flexDirection: 'row',
     gap: Spacing.two,
-    borderTopWidth: 1,
-    borderTopColor: RutafyColors.border,
-    backgroundColor: RutafyColors.surface,
+    marginTop: Spacing.one,
+  },
+  actionFlex: {
+    flex: 1,
   },
 });

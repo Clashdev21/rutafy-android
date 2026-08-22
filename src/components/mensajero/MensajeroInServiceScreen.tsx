@@ -9,7 +9,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
@@ -214,31 +213,30 @@ export function MensajeroInServiceScreen({
   };
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>En ruta</Text>
-          </View>
-          <Text style={styles.headerTitle}>Servicio en curso</Text>
-          <Text style={styles.headerSubtitle}>
-            Sube evidencia de entrega y finaliza con el PIN del transportista
-          </Text>
-          <Text
-            style={[
-              styles.locationStatus,
-              locationActive ? styles.locationActive : styles.locationInactive,
-            ]}>
-            {locationLabel}
-          </Text>
+    <View style={styles.panel}>
+      <View style={styles.header}>
+        <View style={styles.liveBadge}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveText}>En ruta</Text>
         </View>
-      </SafeAreaView>
+        <Text style={styles.headerTitle}>Servicio en curso</Text>
+        <Text style={styles.headerSubtitle}>
+          Evidencia opcional y PIN del transportista para finalizar
+        </Text>
+        <Text
+          style={[
+            styles.locationStatus,
+            locationActive ? styles.locationActive : styles.locationInactive,
+          ]}>
+          {locationLabel}
+        </Text>
+      </View>
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled>
         <View style={styles.codeRow}>
           <Text style={styles.codeLabel}>Código</Text>
           <Text style={styles.codeValue}>{code}</Text>
@@ -248,9 +246,7 @@ export function MensajeroInServiceScreen({
 
         <View style={styles.evidenceCard}>
           <Text style={styles.sectionTitle}>Evidencia de entrega</Text>
-          <Text style={styles.sectionHint}>
-            Opcional antes del cierre. Usa la cámara del dispositivo en Expo Go.
-          </Text>
+          <Text style={styles.sectionHint}>Opcional antes del cierre.</Text>
 
           <View style={styles.pickRow}>
             <Pressable
@@ -263,7 +259,7 @@ export function MensajeroInServiceScreen({
               style={[styles.pickBtn, controlsDisabled && styles.pickBtnDisabled]}
               onPress={() => void handlePickLibrary()}
               disabled={controlsDisabled}>
-              <Text style={styles.pickBtnText}>Elegir de galería</Text>
+              <Text style={styles.pickBtnText}>Galería</Text>
             </Pressable>
           </View>
 
@@ -323,30 +319,23 @@ export function MensajeroInServiceScreen({
         {closeError ? <Text style={styles.errorText}>{closeError}</Text> : null}
       </ScrollView>
 
-      <SafeAreaView style={styles.footer} edges={['bottom', 'left', 'right']}>
-        <RutafyButton
-          label={closing ? 'Finalizando…' : 'Finalizar servicio'}
-          onPress={() => void handleClose()}
-          disabled={!pinValid || controlsDisabled}
-          loading={closing}
-        />
-      </SafeAreaView>
+      <RutafyButton
+        label={closing ? 'Finalizando…' : 'Finalizar servicio'}
+        onPress={() => void handleClose()}
+        disabled={!pinValid || controlsDisabled}
+        loading={closing}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: RutafyColors.surfaceMuted },
-  safe: {
-    borderBottomWidth: 1,
-    borderBottomColor: RutafyColors.border,
-    backgroundColor: RutafyColors.surface,
+  panel: {
+    gap: Spacing.three,
+    maxHeight: 420,
   },
   header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
-    gap: Spacing.two,
+    gap: Spacing.one,
   },
   liveBadge: {
     flexDirection: 'row',
@@ -370,14 +359,14 @@ const styles = StyleSheet.create({
     color: RutafyColors.brand,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '700',
     color: RutafyColors.navy,
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: RutafyColors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   locationStatus: {
     fontSize: 12,
@@ -389,22 +378,17 @@ const styles = StyleSheet.create({
   locationInactive: {
     color: RutafyColors.danger,
   },
-  scroll: { flex: 1 },
+  scroll: {
+    maxHeight: 260,
+  },
   body: {
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.four,
-    gap: Spacing.four,
-    paddingBottom: Spacing.six,
+    gap: Spacing.three,
+    paddingBottom: Spacing.two,
   },
   codeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: RutafyColors.surface,
-    borderRadius: RutafyRadius.card,
-    borderWidth: 1,
-    borderColor: RutafyColors.border,
-    padding: Spacing.three,
   },
   codeLabel: {
     fontSize: 12,
@@ -413,12 +397,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   codeValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     fontFamily: 'monospace',
     color: RutafyColors.navy,
   },
-  routeBlock: { gap: Spacing.one },
+  routeBlock: { gap: 2 },
   routeLabel: {
     fontSize: 11,
     fontWeight: '600',
@@ -427,28 +411,23 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   routeValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: RutafyColors.textPrimary,
-    lineHeight: 22,
+    lineHeight: 20,
   },
   evidenceCard: {
-    backgroundColor: RutafyColors.surface,
-    borderRadius: RutafyRadius.card,
-    borderWidth: 1,
-    borderColor: RutafyColors.border,
-    padding: Spacing.four,
-    gap: Spacing.three,
+    gap: Spacing.two,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: RutafyColors.navy,
   },
   sectionHint: {
-    fontSize: 13,
+    fontSize: 12,
     color: RutafyColors.textSecondary,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   pickRow: {
     flexDirection: 'row',
@@ -465,7 +444,7 @@ const styles = StyleSheet.create({
   },
   pickBtnDisabled: { opacity: 0.5 },
   pickBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: RutafyColors.brand,
   },
@@ -478,7 +457,7 @@ const styles = StyleSheet.create({
   },
   previewImage: {
     width: '100%',
-    height: 200,
+    height: 120,
     backgroundColor: RutafyColors.surfaceMuted,
   },
   previewMeta: {
@@ -509,13 +488,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   pinInput: {
-    backgroundColor: RutafyColors.surface,
+    backgroundColor: RutafyColors.surfaceMuted,
     borderWidth: 1,
     borderColor: RutafyColors.border,
     borderRadius: RutafyRadius.button,
     paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-    fontSize: 24,
+    paddingVertical: Spacing.two,
+    fontSize: 22,
     fontWeight: '700',
     fontFamily: 'monospace',
     letterSpacing: 8,
@@ -523,25 +502,18 @@ const styles = StyleSheet.create({
     color: RutafyColors.navy,
   },
   pinHint: {
-    fontSize: 13,
+    fontSize: 12,
     color: RutafyColors.textSecondary,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   errorText: {
-    fontSize: 14,
+    fontSize: 13,
     color: RutafyColors.danger,
     fontWeight: '500',
   },
   successText: {
-    fontSize: 14,
+    fontSize: 13,
     color: RutafyColors.success,
     fontWeight: '600',
-  },
-  footer: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    borderTopWidth: 1,
-    borderTopColor: RutafyColors.border,
-    backgroundColor: RutafyColors.surface,
   },
 });

@@ -34,6 +34,11 @@ export type Service = {
   messenger_location_updated_at?: string | null;
   messenger_lat?: number | null;
   messenger_lng?: number | null;
+  /** Coordenadas de ruta si el backend las incluye en la respuesta (opcionales). */
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  destination_lat?: number | null;
+  destination_lng?: number | null;
   meta?: Record<string, unknown> | null;
 };
 

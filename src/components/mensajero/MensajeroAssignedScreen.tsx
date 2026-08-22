@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
-import { AppButton, AppCard, AppIcon, AppText } from '@/components/ui';
+import { AppButton, AppText } from '@/components/ui';
 import { colors } from '@/theme/colors';
-import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
 import * as mensajeroService from '@/services/mensajeroService';
 import type { Service } from '@/types/service';
@@ -20,6 +18,7 @@ type Props = {
   onStartSuccess: () => void | Promise<void>;
 };
 
+/** Panel ASSIGNED (MAP 1A). Sin placeholder de mapa. */
 export function MensajeroAssignedScreen({
   service,
   actorId,
@@ -49,94 +48,50 @@ export function MensajeroAssignedScreen({
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.mapArea}>
-        <View style={styles.mapPlaceholder}>
-          <AppIcon name="map" size={36} color={colors.subtitle} />
-          <AppText variant="heading" style={styles.mapTitle}>
-            Mapa operacional
-          </AppText>
-          <AppText variant="caption" style={styles.mapHint}>
-            La vista de mapa se activará en una próxima actualización.
-          </AppText>
-        </View>
+    <View style={styles.panel}>
+      <AppText variant="heading">Servicio asignado</AppText>
+      <AppText variant="caption">{code}</AppText>
+
+      <View style={styles.routeBlock}>
+        <AppText variant="overline">RECOGER EN</AppText>
+        <AppText variant="bodyMedium">{service.origin}</AppText>
+      </View>
+      <View style={styles.routeBlock}>
+        <AppText variant="overline">ENTREGAR EN</AppText>
+        <AppText variant="bodyMedium">{service.destination}</AppText>
       </View>
 
-      <SafeAreaView style={styles.panel} edges={['bottom', 'left', 'right']}>
-        <View style={styles.panelHeader}>
-          <AppText variant="heading">Servicio asignado</AppText>
-          <AppText variant="caption">{code}</AppText>
-        </View>
+      <AppText
+        variant="caption"
+        color={locationActive ? colors.success : colors.danger}
+        style={styles.locationStatus}>
+        {locationLabel}
+      </AppText>
 
-        <AppCard style={styles.routeCard}>
-          <RouteBlock label="RECOGER EN" value={service.origin} />
-          <RouteBlock label="ENTREGAR EN" value={service.destination} />
-        </AppCard>
-
-        <AppText
-          variant="caption"
-          color={locationActive ? colors.success : colors.danger}
-          style={styles.locationStatus}>
-          {locationLabel}
+      {error ? (
+        <AppText variant="caption" color={colors.danger}>
+          {error}
         </AppText>
+      ) : null}
 
-        {error ? (
-          <AppText variant="caption" color={colors.danger} style={styles.errorText}>
-            {error}
-          </AppText>
-        ) : null}
-
-        <AppButton
-          label={starting ? 'Iniciando…' : 'Iniciar servicio'}
-          onPress={() => void handleStart()}
-          disabled={controlsDisabled}
-          loading={starting}
-        />
-      </SafeAreaView>
-    </View>
-  );
-}
-
-function RouteBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.routeBlock}>
-      <AppText variant="overline">{label}</AppText>
-      <AppText variant="bodyMedium">{value}</AppText>
+      <AppButton
+        label={starting ? 'Iniciando…' : 'Iniciar servicio'}
+        onPress={() => void handleStart()}
+        disabled={controlsDisabled}
+        loading={starting}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  mapArea: { flex: 7, backgroundColor: '#E2E8F0' },
-  mapPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    margin: spacing.base,
-    borderRadius: radius.card,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.xl,
-  },
-  mapTitle: { textAlign: 'center', color: colors.navy },
-  mapHint: { textAlign: 'center' },
   panel: {
-    flex: 3,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.bottomSheet,
-    borderTopRightRadius: radius.bottomSheet,
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
     gap: spacing.md,
-    borderTopWidth: 1,
-    borderColor: colors.border,
   },
-  panelHeader: { gap: 2 },
-  routeCard: { gap: spacing.md },
-  routeBlock: { gap: 4 },
-  locationStatus: { textAlign: 'center' },
-  errorText: { textAlign: 'center' },
+  routeBlock: {
+    gap: 4,
+  },
+  locationStatus: {
+    textAlign: 'left',
+  },
 });

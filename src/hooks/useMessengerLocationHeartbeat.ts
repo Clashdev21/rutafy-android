@@ -9,10 +9,25 @@ import {
   requestForegroundGpsPermission,
   type GpsPosition,
 } from '@/services/locationService';
+import type { MapCoordinate } from '@/types/map';
 
 const HEARTBEAT_INTERVAL_MS = 30000;
 const HEARTBEAT_THROTTLE_MS = 25000;
 const MIN_COORD_DELTA = 0.0001;
+
+function toMapCoordinate(
+  fix: GpsPosition,
+  extras?: { heading?: number | null; speed?: number | null },
+): MapCoordinate {
+  return {
+    latitude: fix.lat,
+    longitude: fix.lng,
+    accuracy: fix.accuracyM,
+    heading: extras?.heading ?? null,
+    speed: extras?.speed ?? null,
+    timestamp: fix.timestamp,
+  };
+}
 
 type OperationalUiState = 'OFFLINE' | 'AVAILABLE' | 'OFFER' | 'ASSIGNED' | 'IN_SERVICE';
 type GpsIndicatorStatus = 'active' | 'unavailable' | 'permission-pending';
@@ -34,6 +49,8 @@ export function useMessengerLocationHeartbeat(params: {
 }) {
   const [status, setStatus] = useState<GpsIndicatorStatus>('permission-pending');
   const [hasLocationFix, setHasLocationFix] = useState(false);
+  /** Copia UI del último fix del watcher existente. No se limpia al pasar a OFFLINE. */
+  const [lastKnownPosition, setLastKnownPosition] = useState<MapCoordinate | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
@@ -48,9 +65,11 @@ export function useMessengerLocationHeartbeat(params: {
   const statusRef = useRef<GpsIndicatorStatus>('permission-pending');
   const hasLocationFixRef = useRef(false);
 
+  /** OFFER incluido para mantener marker vivo; OFFLINE no inicia watch. */
   const canRun =
     params.enabled &&
     (params.uiState === 'AVAILABLE' ||
+      params.uiState === 'OFFER' ||
       params.uiState === 'ASSIGNED' ||
       params.uiState === 'IN_SERVICE');
 
@@ -209,6 +228,7 @@ export function useMessengerLocationHeartbeat(params: {
         const current = await getCurrentGpsPosition();
         if (cancelled) return;
         lastFixRef.current = current;
+        setLastKnownPosition(toMapCoordinate(current));
         if (!hasLocationFixRef.current) {
           setHasLocationFix(true);
         }
@@ -241,6 +261,14 @@ export function useMessengerLocationHeartbeat(params: {
               Math.abs(next.lng - prev.lng) >= MIN_COORD_DELTA;
 
             lastFixRef.current = next;
+            if (changedEnough) {
+              setLastKnownPosition(
+                toMapCoordinate(next, {
+                  heading: Number.isFinite(update.coords.heading) ? update.coords.heading : null,
+                  speed: Number.isFinite(update.coords.speed) ? update.coords.speed : null,
+                }),
+              );
+            }
             if (changedEnough || statusRef.current !== 'active') {
               setStatus('active');
             }
@@ -289,5 +317,6 @@ export function useMessengerLocationHeartbeat(params: {
   return {
     gpsStatus: status,
     hasLocationFix,
+    lastKnownPosition,
   };
 }

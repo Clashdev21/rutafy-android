@@ -29,6 +29,36 @@ function formatRouteEndpoint(value: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Extrae lat/lng de un endpoint si el backend los envía (flat o nested). No inventa. */
+function extractEndpointCoords(
+  endpoint: unknown,
+  flatLat: unknown,
+  flatLng: unknown,
+): { lat: number | null; lng: number | null } {
+  const fromFlatLat = pickNum(flatLat);
+  const fromFlatLng = pickNum(flatLng);
+  if (fromFlatLat != null && fromFlatLng != null) {
+    return { lat: fromFlatLat, lng: fromFlatLng };
+  }
+
+  if (endpoint && typeof endpoint === 'object' && !Array.isArray(endpoint)) {
+    const rec = endpoint as Record<string, unknown>;
+    const lat =
+      pickNum(rec.lat) ??
+      pickNum(rec.latitude) ??
+      pickNum(rec.map_lat) ??
+      pickNum(rec.mapLat);
+    const lng =
+      pickNum(rec.lng) ??
+      pickNum(rec.longitude) ??
+      pickNum(rec.map_lng) ??
+      pickNum(rec.mapLng);
+    if (lat != null && lng != null) return { lat, lng };
+  }
+
+  return { lat: null, lng: null };
+}
+
 function normalizeStatus(raw: unknown): ServiceStatus {
   const s = String(raw ?? 'REQUESTED').trim().toUpperCase();
   return s as ServiceStatus;
@@ -81,6 +111,17 @@ export function normalizeServiceRow(raw: unknown): Service | null {
     pickStr(row.location_updated_at) ??
     pickStr(row.locationUpdatedAt);
 
+  const originCoords = extractEndpointCoords(
+    row.origin,
+    row.origin_lat ?? row.originLat ?? row.pickup_lat ?? row.pickupLat,
+    row.origin_lng ?? row.originLng ?? row.pickup_lng ?? row.pickupLng,
+  );
+  const destinationCoords = extractEndpointCoords(
+    row.destination,
+    row.destination_lat ?? row.destinationLat ?? row.delivery_lat ?? row.deliveryLat,
+    row.destination_lng ?? row.destinationLng ?? row.delivery_lng ?? row.deliveryLng,
+  );
+
   return {
     service_id,
     status,
@@ -102,6 +143,10 @@ export function normalizeServiceRow(raw: unknown): Service | null {
     messenger_location_updated_at,
     messenger_lat,
     messenger_lng,
+    origin_lat: originCoords.lat,
+    origin_lng: originCoords.lng,
+    destination_lat: destinationCoords.lat,
+    destination_lng: destinationCoords.lng,
     meta: row.meta && typeof row.meta === 'object' ? (row.meta as Record<string, unknown>) : null,
   };
 }
@@ -173,6 +218,17 @@ export function mapOfferToService(offer: DispatchOfferLike): Service | null {
     pickFromObject(meta, OFFER_DEST_KEYS) ||
     'Destino no definido';
 
+  const originCoords = extractEndpointCoords(
+    originRaw,
+    nested?.origin_lat ?? offerRec.origin_lat ?? meta?.origin_lat,
+    nested?.origin_lng ?? offerRec.origin_lng ?? meta?.origin_lng,
+  );
+  const destinationCoords = extractEndpointCoords(
+    destRaw,
+    nested?.destination_lat ?? offerRec.destination_lat ?? meta?.destination_lat,
+    nested?.destination_lng ?? offerRec.destination_lng ?? meta?.destination_lng,
+  );
+
   return {
     service_id,
     status: normalizeStatus(nested?.status ?? offer.status ?? 'REQUESTED'),
@@ -185,6 +241,12 @@ export function mapOfferToService(offer: DispatchOfferLike): Service | null {
     service_code: `RTF-${service_id.slice(0, 6).toUpperCase()}`,
     request_mode: 'NOW',
     expires_at: pickStr(nested?.expires_at) ?? pickStr(offer.expires_at),
+    estimated_route_distance_km: pickNum(nested?.estimated_route_distance_km),
+    estimated_route_duration_minutes: pickNum(nested?.estimated_route_duration_minutes),
+    origin_lat: originCoords.lat,
+    origin_lng: originCoords.lng,
+    destination_lat: destinationCoords.lat,
+    destination_lng: destinationCoords.lng,
     meta,
   };
 }
