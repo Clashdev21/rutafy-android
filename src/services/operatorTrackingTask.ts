@@ -283,6 +283,15 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     }
 
     const payload = data as { locations?: unknown } | undefined;
+    recordTrackingDiagnostic(
+      'tracking-location-callback',
+      {
+        channel: 'background',
+        locationCount: Array.isArray(payload?.locations) ? payload.locations.length : 0,
+      },
+      sessionId,
+    );
+
     const points = locationsToTrackingPoints(
       payload?.locations,
       'background',

@@ -44,6 +44,7 @@ import {
 } from '@/utils/trackingSessionOwnership';
 import { toTrackingPoint } from '@/utils/trackingPointMapper';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
+import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
 import { startMotionTelemetryForSession } from '@/services/motionTelemetryService';
 
 const BATCH_FLUSH_MS = 12000;
@@ -257,6 +258,12 @@ export function useOperatorTrackingSession() {
           const sid = sessionIdRef.current;
           if (!sid) return;
 
+          recordTrackingDiagnostic(
+            'tracking-location-callback',
+            { channel: 'foreground' },
+            sid,
+          );
+
           const point = toTrackingPoint(update, 'foreground', FG_POINT_METADATA);
           if (!point) return;
 
@@ -315,6 +322,7 @@ export function useOperatorTrackingSession() {
       setPurpose(local.purpose);
       setVehicleLabel(local.vehicleLabel);
       resetSpeedTelemetryForNewSession(local.sessionId);
+      resetTrackingPipelineForNewSession(local.sessionId);
       void startMotionTelemetryForSession(local.sessionId);
       recordTrackingDiagnostic('tracking-restored', {
         sessionId: local.sessionId,
@@ -392,16 +400,35 @@ export function useOperatorTrackingSession() {
       return null;
     };
 
+    const appStateRef = { current: AppState.currentState };
+
     const initial = mapStateToLifecycle(AppState.currentState);
-    if (initial) recordTrackingDiagnostic(initial, { appState: AppState.currentState });
+    if (initial) {
+      recordTrackingDiagnostic(initial, { appState: AppState.currentState }, sessionIdRef.current ?? undefined);
+    }
 
     const sub = AppState.addEventListener('change', (nextState) => {
+      const sid = sessionIdRef.current;
+      const from = appStateRef.current;
+      appStateRef.current = nextState;
       if (nextState === 'active') {
-        recordTrackingDiagnostic('app-foreground', { appState: nextState });
+        recordTrackingDiagnostic(
+          'app-foreground',
+          { appState: nextState, from },
+          sid ?? undefined,
+        );
       } else if (nextState === 'background') {
-        recordTrackingDiagnostic('app-background', { appState: nextState });
+        recordTrackingDiagnostic(
+          'app-background',
+          { appState: nextState, from },
+          sid ?? undefined,
+        );
       } else if (nextState === 'inactive') {
-        recordTrackingDiagnostic('app-inactive', { appState: nextState });
+        recordTrackingDiagnostic(
+          'app-inactive',
+          { appState: nextState, from },
+          sid ?? undefined,
+        );
       }
     });
 
@@ -482,6 +509,7 @@ export function useOperatorTrackingSession() {
       await operatorTrackingHealthStorage.clear();
       await trackingSessionStorage.setActive(stored);
       resetSpeedTelemetryForNewSession(stored.sessionId);
+      resetTrackingPipelineForNewSession(stored.sessionId);
       void startMotionTelemetryForSession(stored.sessionId);
       setStoredSession(stored);
       setRemoteStatus(session.status);

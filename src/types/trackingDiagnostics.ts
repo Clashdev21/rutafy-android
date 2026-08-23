@@ -1,6 +1,13 @@
 import type { SessionMotionStatistics } from './sessionMotionStatistics';
 import type { SessionMotionTimeline } from './motionActivity';
 import type { SessionSpeedStatistics } from './sessionSpeedStatistics';
+import type {
+  SessionAppStateTimeline,
+  SessionTaskLifecycleSummary,
+  SessionTrackingGapStatistics,
+  SessionTrackingGapTimeline,
+  SessionTrackingPipelineStatistics,
+} from './sessionTrackingPipeline';
 
 export type TrackingSessionEndReason =
   | 'user'
@@ -120,6 +127,16 @@ export interface TrackingDiagnosticExport {
   sessionMotionStatistics: SessionMotionStatistics | null;
   /** Speed 2B.1 — timeline acotada (~30s buckets) de la misma sesión. */
   sessionMotionTimeline: SessionMotionTimeline | null;
+  /** Reliability 3A — contadores session-scoped del pipeline de tracking. */
+  sessionTrackingPipelineStatistics: SessionTrackingPipelineStatistics | null;
+  /** Reliability 3A — agregados de gaps entre fixes válidos. */
+  sessionTrackingGapStatistics: SessionTrackingGapStatistics | null;
+  /** Reliability 3A — timeline acotada de gaps. */
+  trackingGapTimeline: SessionTrackingGapTimeline | null;
+  /** Reliability 3A — transiciones AppState durante la sesión. */
+  appStateTimeline: SessionAppStateTimeline | null;
+  /** Reliability 3A — resumen lifecycle del background task. */
+  taskLifecycleSummary: SessionTaskLifecycleSummary | null;
   snapshot: TrackingSnapshot;
   events: TrackingDiagnosticEvent[];
   analysis: TrackingDiagnosticExportAnalysis;

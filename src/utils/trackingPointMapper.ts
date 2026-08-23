@@ -1,8 +1,10 @@
 import type { LocationObject } from 'expo-location';
 
 import { gpsDetailFromPoint, recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
+import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointAppState, TrackingPointInput } from '@/types/tracking';
 import { observeSpeedTelemetryFromPoint } from '@/utils/speedTelemetryObserver';
+import { observeTrackingPipelineFromPoint } from '@/utils/trackingPipelineObserver';
 
 type CoordsLike = {
   latitude?: number;
@@ -26,7 +28,13 @@ export function toTrackingPoint(
   const coords = location.coords;
   const lat = coords?.latitude;
   const lng = coords?.longitude;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    const sessionId = trackingSessionStorage.getActiveSessionIdSync();
+    if (sessionId) {
+      recordTrackingDiagnostic('tracking-fix-invalid', { reason: 'invalid_coords' }, sessionId);
+    }
+    return null;
+  }
 
   const timestamp = location.timestamp ?? Date.now();
   const speed = coords?.speed;
@@ -61,6 +69,7 @@ export function toTrackingPoint(
       : null;
 
   recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point));
+  observeTrackingPipelineFromPoint(point, trackingSessionStorage.getActiveSessionIdSync());
   observeSpeedTelemetryFromPoint(point, undefined, {
     fixAgeMs,
     mocked,

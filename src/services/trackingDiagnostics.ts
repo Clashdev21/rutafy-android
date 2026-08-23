@@ -9,6 +9,13 @@ import type { SessionMotionTimeline, MotionTimelineBucket } from '@/types/motion
 import type { SessionMotionStatistics } from '@/types/sessionMotionStatistics';
 import type { SessionSpeedStatistics } from '@/types/sessionSpeedStatistics';
 import type {
+  SessionAppStateTimeline,
+  SessionTaskLifecycleSummary,
+  SessionTrackingGapStatistics,
+  SessionTrackingGapTimeline,
+  SessionTrackingPipelineStatistics,
+} from '@/types/sessionTrackingPipeline';
+import type {
   TrackingDiagnosticEvent,
   TrackingDiagnosticExport,
   TrackingDiagnosticExportAnalysis,
@@ -18,6 +25,21 @@ import type {
   TrackingStatistics,
 } from '@/types/trackingDiagnostics';
 import { EMPTY_TRACKING_STATISTICS } from '@/types/trackingDiagnostics';
+import {
+  applyGapToStatistics,
+  applyPipelineEventToSession,
+  buildGapTimelineEntry,
+  buildTaskLifecycleSummary,
+  capAppStateTransitions,
+  capGapTimeline,
+  createEmptyAppStateTimeline,
+  createEmptyGapStatistics,
+  createEmptyGapTimeline,
+  gapEventType,
+  markSessionPipelineEnded,
+  resolveSessionPipelineBucket,
+} from '@/utils/sessionTrackingPipelineStatistics';
+import type { ClassifyTrackingGapResult } from '@/utils/trackingGapClassifier';
 import {
   applyMotionCoverageGap,
   applyMotionWindowToSession,
@@ -44,6 +66,12 @@ const SESSION_SPEED_STATS_KEY = 'rutafy_tracking_diag_session_speed_stats';
 const SESSION_MOTION_STATS_KEY = 'rutafy_tracking_diag_session_motion_stats';
 /** Speed 2B.1 — timeline acotada de la sesión actual/última. */
 const SESSION_MOTION_TIMELINE_KEY = 'rutafy_tracking_diag_session_motion_timeline';
+/** Reliability 3A — pipeline session-scoped. */
+const SESSION_PIPELINE_STATS_KEY = 'rutafy_tracking_diag_session_pipeline_stats';
+const SESSION_GAP_STATS_KEY = 'rutafy_tracking_diag_session_gap_stats';
+const SESSION_GAP_TIMELINE_KEY = 'rutafy_tracking_diag_session_gap_timeline';
+const SESSION_APP_STATE_TIMELINE_KEY = 'rutafy_tracking_diag_app_state_timeline';
+const SESSION_PIPELINE_TASK_ERROR_KEY = 'rutafy_tracking_diag_session_pipeline_task_error';
 
 const MAX_EVENTS = 100;
 const STALE_THRESHOLD_MS = 180_000;
@@ -378,6 +406,160 @@ export function recordMotionCoverageGap(sessionId: string, detail?: Record<strin
   recordTrackingDiagnostic('motion-coverage-gap', detail, sessionId);
 }
 
+// ─── Reliability 3A — session pipeline observability ─────────────────────────
+
+export function beginSessionTrackingPipelineStatistics(sessionId: string): void {
+  if (!sessionId.trim()) return;
+  enqueuePersist(async () => {
+    const [existingPipeline, existingGapStats, existingGapTimeline, existingAppState] =
+      await Promise.all([
+        readJson<SessionTrackingPipelineStatistics | null>(SESSION_PIPELINE_STATS_KEY, null),
+        readJson<SessionTrackingGapStatistics | null>(SESSION_GAP_STATS_KEY, null),
+        readJson<SessionTrackingGapTimeline | null>(SESSION_GAP_TIMELINE_KEY, null),
+        readJson<SessionAppStateTimeline | null>(SESSION_APP_STATE_TIMELINE_KEY, null),
+      ]);
+    const { stats, reset } = resolveSessionPipelineBucket(existingPipeline, sessionId);
+    const writes: Promise<void>[] = [writeJson(SESSION_PIPELINE_STATS_KEY, stats)];
+    if (reset || !existingGapStats) {
+      writes.push(writeJson(SESSION_GAP_STATS_KEY, createEmptyGapStatistics()));
+    }
+    if (reset || !existingGapTimeline || existingGapTimeline.sessionId !== sessionId) {
+      writes.push(writeJson(SESSION_GAP_TIMELINE_KEY, createEmptyGapTimeline(sessionId)));
+    }
+    if (reset || !existingAppState || existingAppState.sessionId !== sessionId) {
+      writes.push(writeJson(SESSION_APP_STATE_TIMELINE_KEY, createEmptyAppStateTimeline(sessionId)));
+    }
+    if (reset) {
+      writes.push(writeJson(SESSION_PIPELINE_TASK_ERROR_KEY, { at: null, detail: null }));
+    }
+    await Promise.all(writes);
+  });
+  recordTrackingDiagnostic('tracking-pipeline-session-start', { sessionId }, sessionId);
+}
+
+export async function endSessionTrackingPipelineStatistics(): Promise<void> {
+  await runOnPersistChain(async () => {
+    const existing = await readJson<SessionTrackingPipelineStatistics | null>(
+      SESSION_PIPELINE_STATS_KEY,
+      null,
+    );
+    if (!existing) return;
+    await writeJson(SESSION_PIPELINE_STATS_KEY, markSessionPipelineEnded(existing));
+  });
+}
+
+export async function getSessionTrackingPipelineStatistics(): Promise<SessionTrackingPipelineStatistics | null> {
+  return readJson<SessionTrackingPipelineStatistics | null>(SESSION_PIPELINE_STATS_KEY, null);
+}
+
+export async function getSessionTrackingGapStatistics(): Promise<SessionTrackingGapStatistics | null> {
+  return readJson<SessionTrackingGapStatistics | null>(SESSION_GAP_STATS_KEY, null);
+}
+
+export async function getSessionTrackingGapTimeline(): Promise<SessionTrackingGapTimeline | null> {
+  return readJson<SessionTrackingGapTimeline | null>(SESSION_GAP_TIMELINE_KEY, null);
+}
+
+export async function getSessionAppStateTimeline(): Promise<SessionAppStateTimeline | null> {
+  return readJson<SessionAppStateTimeline | null>(SESSION_APP_STATE_TIMELINE_KEY, null);
+}
+
+export function patchSessionPipelineStatistics(
+  sessionId: string,
+  updater: (stats: SessionTrackingPipelineStatistics) => SessionTrackingPipelineStatistics,
+): void {
+  if (!sessionId.trim()) return;
+  enqueuePersist(async () => {
+    const existing = await readJson<SessionTrackingPipelineStatistics | null>(
+      SESSION_PIPELINE_STATS_KEY,
+      null,
+    );
+    if (!existing || existing.sessionId !== sessionId) return;
+    await writeJson(SESSION_PIPELINE_STATS_KEY, updater(existing));
+  });
+}
+
+export function recordPipelineGapDiagnostic(
+  sessionId: string,
+  gap: ClassifyTrackingGapResult,
+  previous: { lat: number; lng: number; capturedAt: string; appState?: string | null },
+  current: { lat: number; lng: number; capturedAt: string; appState?: string | null },
+  lastTaskEventType?: string | null,
+): void {
+  const eventType = gapEventType(gap.classification);
+  const detail = {
+    classification: gap.classification,
+    reason: gap.reason,
+    durationMs: gap.durationMs,
+    displacementM: gap.displacementM,
+    impliedAverageSpeedKmh: gap.impliedAverageSpeedKmh,
+    previousAccuracyM: gap.previousAccuracyM,
+    currentAccuracyM: gap.currentAccuracyM,
+    combinedAccuracyM: gap.combinedAccuracyM,
+    displacementQualityRatio: gap.displacementQualityRatio,
+  };
+
+  enqueuePersist(async () => {
+    const [gapStats, gapTimeline] = await Promise.all([
+      readJson<SessionTrackingGapStatistics | null>(SESSION_GAP_STATS_KEY, null),
+      readJson<SessionTrackingGapTimeline | null>(SESSION_GAP_TIMELINE_KEY, null),
+    ]);
+    const baseGapStats = gapStats ?? createEmptyGapStatistics();
+    const nextGapStats = applyGapToStatistics(baseGapStats, gap);
+    const entry = buildGapTimelineEntry(gap, previous, current, lastTaskEventType);
+    const timelineBase =
+      gapTimeline && gapTimeline.sessionId === sessionId
+        ? gapTimeline
+        : createEmptyGapTimeline(sessionId);
+    const nextTimeline: SessionTrackingGapTimeline = {
+      sessionId,
+      gaps: capGapTimeline([...timelineBase.gaps, entry]),
+    };
+    await Promise.all([
+      writeJson(SESSION_GAP_STATS_KEY, nextGapStats),
+      writeJson(SESSION_GAP_TIMELINE_KEY, nextTimeline),
+    ]);
+  });
+
+  recordTrackingDiagnostic(eventType, detail, sessionId);
+}
+
+async function appendAppStateTransition(
+  sessionId: string,
+  from: string,
+  to: string,
+  timestamp: string,
+): Promise<void> {
+  const existing = await readJson<SessionAppStateTimeline | null>(
+    SESSION_APP_STATE_TIMELINE_KEY,
+    null,
+  );
+  const base =
+    existing && existing.sessionId === sessionId
+      ? existing
+      : createEmptyAppStateTimeline(sessionId);
+  const next: SessionAppStateTimeline = {
+    sessionId,
+    transitions: capAppStateTransitions([
+      ...base.transitions,
+      { from, to, timestamp },
+    ]),
+  };
+  await writeJson(SESSION_APP_STATE_TIMELINE_KEY, next);
+}
+
+async function getSessionTaskLifecycleSummary(): Promise<SessionTaskLifecycleSummary | null> {
+  const [pipeline, taskError] = await Promise.all([
+    getSessionTrackingPipelineStatistics(),
+    readJson<{ at: string | null; detail: string | null }>(
+      SESSION_PIPELINE_TASK_ERROR_KEY,
+      { at: null, detail: null },
+    ),
+  ]);
+  if (!pipeline) return null;
+  return buildTaskLifecycleSummary(pipeline, taskError.at, taskError.detail);
+}
+
 function motionWindowFromDetail(
   detail?: Record<string, unknown>,
 ): MotionWindowSummary | null {
@@ -423,15 +605,23 @@ export function recordTrackingDiagnostic(
 
   /** speed-stat-* / motion-stat-* solo stats; no saturan el ring buffer. */
   const appendToRingBuffer =
-    !type.startsWith('speed-stat-') && !type.startsWith('motion-stat-');
+    !type.startsWith('speed-stat-') &&
+    !type.startsWith('motion-stat-') &&
+    type !== 'tracking-pipeline-session-start';
 
   enqueuePersist(async () => {
-    const [events, stats, snapshot, sessionSpeed, sessionMotion] = await Promise.all([
+    const [events, stats, snapshot, sessionSpeed, sessionMotion, sessionPipeline, taskError] =
+      await Promise.all([
       readJson<TrackingDiagnosticEvent[]>(EVENTS_KEY, []),
       readJson<Partial<TrackingStatistics>>(STATS_KEY, EMPTY_TRACKING_STATISTICS),
       readJson<TrackingSnapshot>(SNAPSHOT_KEY, {}),
       readJson<SessionSpeedStatistics | null>(SESSION_SPEED_STATS_KEY, null),
       readJson<SessionMotionStatistics | null>(SESSION_MOTION_STATS_KEY, null),
+      readJson<SessionTrackingPipelineStatistics | null>(SESSION_PIPELINE_STATS_KEY, null),
+      readJson<{ at: string | null; detail: string | null }>(SESSION_PIPELINE_TASK_ERROR_KEY, {
+        at: null,
+        detail: null,
+      }),
     ]);
 
     const nextEvents = appendToRingBuffer ? [...events, event] : [...events];
@@ -469,6 +659,22 @@ export function recordTrackingDiagnostic(
       }
     }
 
+    let nextSessionPipeline = sessionPipeline;
+    if (sessionId && sessionPipeline && sessionPipeline.sessionId === sessionId) {
+      const applied = applyPipelineEventToSession(type, sessionPipeline, timestamp, detail);
+      if (applied != null) {
+        nextSessionPipeline = applied;
+      }
+    }
+
+    let nextTaskError = taskError;
+    if (type === 'bg-task-error' && sessionId) {
+      nextTaskError = {
+        at: timestamp,
+        detail: typeof detail?.error === 'string' ? detail.error : 'task_error',
+      };
+    }
+
     const writes: Promise<void>[] = [
       writeJson(EVENTS_KEY, nextEvents),
       writeJson(STATS_KEY, nextStats),
@@ -479,6 +685,25 @@ export function recordTrackingDiagnostic(
     }
     if (nextSessionMotion !== sessionMotion && nextSessionMotion != null) {
       writes.push(writeJson(SESSION_MOTION_STATS_KEY, nextSessionMotion));
+    }
+    if (nextSessionPipeline !== sessionPipeline && nextSessionPipeline != null) {
+      writes.push(writeJson(SESSION_PIPELINE_STATS_KEY, nextSessionPipeline));
+    }
+    if (nextTaskError !== taskError) {
+      writes.push(writeJson(SESSION_PIPELINE_TASK_ERROR_KEY, nextTaskError));
+    }
+
+    if (sessionId && (type === 'app-foreground' || type === 'app-background' || type === 'app-inactive')) {
+      const from =
+        typeof detail?.from === 'string'
+          ? detail.from
+          : type === 'app-foreground'
+            ? 'background'
+            : type === 'app-background'
+              ? 'active'
+              : 'unknown';
+      const to = typeof detail?.appState === 'string' ? detail.appState : AppState.currentState;
+      writes.push(appendAppStateTransition(sessionId, from, to, timestamp));
     }
 
     await Promise.all(writes);
@@ -636,6 +861,11 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     sessionSpeedStatistics,
     sessionMotionStatistics,
     sessionMotionTimeline,
+    sessionTrackingPipelineStatistics,
+    sessionTrackingGapStatistics,
+    trackingGapTimeline,
+    appStateTimeline,
+    taskLifecycleSummary,
   ] = await Promise.all([
     getTrackingDiagnosticEvents(MAX_EVENTS),
     getTrackingStatistics(),
@@ -645,6 +875,11 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     getSessionSpeedStatistics(),
     getSessionMotionStatistics(),
     getSessionMotionTimeline(),
+    getSessionTrackingPipelineStatistics(),
+    getSessionTrackingGapStatistics(),
+    getSessionTrackingGapTimeline(),
+    getSessionAppStateTimeline(),
+    getSessionTaskLifecycleSummary(),
   ]);
 
   let batteryLevel: number | null = null;
@@ -725,6 +960,11 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     sessionSpeedStatistics,
     sessionMotionStatistics,
     sessionMotionTimeline,
+    sessionTrackingPipelineStatistics,
+    sessionTrackingGapStatistics,
+    trackingGapTimeline,
+    appStateTimeline,
+    taskLifecycleSummary,
     snapshot,
     events,
     analysis,

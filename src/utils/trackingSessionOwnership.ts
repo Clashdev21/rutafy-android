@@ -6,15 +6,17 @@ import {
   stopMotionTelemetryForSession,
 } from '@/services/motionTelemetryService';
 import {
+  endSessionSpeedStatistics,
+  endSessionTrackingPipelineStatistics,
   recordTrackingDiagnostic,
   setSessionEndReason,
-  endSessionSpeedStatistics,
 } from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { AuthUser } from '@/types/auth';
 import type { StoredTrackingSession, TrackingSession } from '@/types/tracking';
 import type { TrackingSessionEndReason } from '@/types/trackingDiagnostics';
 import { resetSpeedTelemetryForNewSession, resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
+import { resetTrackingPipelinePreviousFix } from '@/utils/trackingPipelineObserver';
 
 function normId(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -83,7 +85,9 @@ export async function cleanupLocalTrackingSession(reason: string): Promise<void>
   recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
   await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
+  await endSessionTrackingPipelineStatistics();
   resetSpeedTelemetryPreviousFix();
+  resetTrackingPipelinePreviousFix();
   await stopOperatorTrackingAsync();
   await trackingSessionStorage.clearActive();
 }

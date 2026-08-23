@@ -6,6 +6,7 @@ import { BACKGROUND_LOCATION_TASK_NAME } from '@/services/backgroundLocationTask
 import { OPERATOR_TRACKING_TASK_NAME } from '@/services/operatorTrackingTask';
 import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import { notePipelineTaskEvent } from '@/utils/trackingPipelineObserver';
 
 const TIME_INTERVAL_MS = 20000;
 const DISTANCE_INTERVAL_M = 10;
@@ -112,6 +113,15 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
   }
 
   try {
+    const stored = await trackingSessionStorage.getActive();
+    if (stored?.sessionId) {
+      recordTrackingDiagnostic(
+        'tracking-task-start-requested',
+        { task: OPERATOR_TRACKING_TASK_NAME },
+        stored.sessionId,
+      );
+    }
+
     const alreadyStarted = await isOperatorTrackingStartedAsync();
     if (alreadyStarted) {
       if (__DEV__) {
@@ -138,6 +148,7 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
       console.log('[operator-bg-start]', { started, task: OPERATOR_TRACKING_TASK_NAME });
     }
     if (started) {
+      notePipelineTaskEvent('bg-task-start');
       recordTrackingDiagnostic(
         'bg-task-start',
         {
@@ -145,15 +156,16 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
           taskManagerStarted: true,
           task: OPERATOR_TRACKING_TASK_NAME,
         },
-        stored.sessionId,
+        stored?.sessionId,
       );
     }
     return started;
   } catch (error) {
+    const storedOnError = await trackingSessionStorage.getActive();
     recordTrackingDiagnostic(
       'bg-task-error',
       { error: String(error), task: OPERATOR_TRACKING_TASK_NAME },
-      stored.sessionId,
+      storedOnError?.sessionId,
     );
     console.warn('[operator-bg-start]', { error });
     return false;
@@ -188,11 +200,19 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
   try {
     await Location.stopLocationUpdatesAsync(OPERATOR_TRACKING_TASK_NAME);
     const stored = await trackingSessionStorage.getActive();
+    if (stored?.sessionId) {
+      recordTrackingDiagnostic(
+        'tracking-task-stop-requested',
+        { task: OPERATOR_TRACKING_TASK_NAME },
+        stored.sessionId,
+      );
+    }
     recordTrackingDiagnostic(
       'bg-task-stop',
       { fgServiceStarted: false, taskManagerStarted: false },
       stored?.sessionId,
     );
+    notePipelineTaskEvent('bg-task-stop');
     if (__DEV__) {
       console.log('[operator-bg-stop]', { stopped: true });
     }
@@ -217,6 +237,7 @@ export async function ensureOperatorBackgroundTracking(): Promise<boolean> {
   }
   const restored = await startOperatorTrackingAsync();
   if (restored) {
+    notePipelineTaskEvent('bg-task-restored');
     recordTrackingDiagnostic(
       'bg-task-restored',
       { fgServiceStarted: true, taskManagerStarted: true },
