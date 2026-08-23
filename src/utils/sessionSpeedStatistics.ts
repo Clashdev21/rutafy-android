@@ -45,8 +45,10 @@ export function resolveSessionSpeedBucket(
   startedAt?: string,
 ): { stats: SessionSpeedStatistics; reset: boolean } {
   if (!shouldResetSessionSpeedBucket(existing, sessionId) && existing) {
+    const defaults = createEmptySessionSpeedStatistics(existing.sessionId, existing.startedAt);
     return {
       stats: {
+        ...defaults,
         ...existing,
         endedAt: null,
       },
@@ -226,6 +228,68 @@ export function applySpeedStatEventToCounters<T extends SpeedStatCounters>(
       next.mockedFixes += 1;
       next.lastFixMocked = true;
       return next;
+    case 'speed-stat-effective': {
+      next.effectiveSpeedSamples += 1;
+      const source = typeof detail?.source === 'string' ? detail.source : null;
+      const confidence = typeof detail?.confidence === 'string' ? detail.confidence : null;
+      const reason = typeof detail?.reason === 'string' ? detail.reason : null;
+      const speedKmh =
+        typeof detail?.speedKmh === 'number' && Number.isFinite(detail.speedKmh)
+          ? detail.speedKmh
+          : null;
+
+      next.lastEffectiveSpeedSource = source;
+      next.lastEffectiveSpeedConfidence = confidence;
+      next.lastEffectiveSpeedReason = reason;
+
+      if (source === 'unavailable' || speedKmh == null) {
+        next.effectiveSpeedUnavailable += 1;
+        next.lastEffectiveSpeedKmh = null;
+      } else {
+        next.lastEffectiveSpeedKmh = speedKmh;
+        next.maxEffectiveSpeedKmh =
+          next.maxEffectiveSpeedKmh == null
+            ? speedKmh
+            : Math.max(next.maxEffectiveSpeedKmh, speedKmh);
+        if (source === 'native') next.effectiveNativeSamples += 1;
+        if (source === 'derived') next.effectiveDerivedSamples += 1;
+        const availableCount = next.effectiveNativeSamples + next.effectiveDerivedSamples;
+        next.avgEffectiveSpeedKmh = incrementRunningAvg(
+          next.avgEffectiveSpeedKmh,
+          availableCount,
+          speedKmh,
+        );
+        if (confidence === 'high') next.effectiveHighConfidence += 1;
+        else if (confidence === 'medium') next.effectiveMediumConfidence += 1;
+        else if (confidence === 'low') next.effectiveLowConfidence += 1;
+      }
+
+      if (reason === 'derived_recovery_native_zero') {
+        next.nativeZeroRecoveredByDerived += 1;
+      }
+      if (reason === 'native_implausible_derived_used') {
+        next.nativeImplausibleRejected += 1;
+      }
+
+      const disagreementKmh =
+        typeof detail?.disagreementKmh === 'number' && Number.isFinite(detail.disagreementKmh)
+          ? detail.disagreementKmh
+          : null;
+      if (disagreementKmh != null) {
+        next.speedDisagreementSamples += 1;
+        next.lastDisagreementKmh = disagreementKmh;
+        next.maxDisagreementKmh =
+          next.maxDisagreementKmh == null
+            ? disagreementKmh
+            : Math.max(next.maxDisagreementKmh, disagreementKmh);
+        next.avgDisagreementKmh = incrementRunningAvg(
+          next.avgDisagreementKmh,
+          next.speedDisagreementSamples,
+          disagreementKmh,
+        );
+      }
+      return next;
+    }
     default:
       return null;
   }

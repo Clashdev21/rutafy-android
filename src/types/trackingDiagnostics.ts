@@ -1,6 +1,7 @@
 import type { SessionMotionStatistics } from './sessionMotionStatistics';
 import type { SessionMotionTimeline } from './motionActivity';
-import type { SessionSpeedStatistics } from './sessionSpeedStatistics';
+import type { SessionSpeedStatistics, SpeedStatCounters } from './sessionSpeedStatistics';
+import { EMPTY_SPEED_STAT_COUNTERS } from './sessionSpeedStatistics';
 import type {
   SessionAppStateTimeline,
   SessionTaskLifecycleSummary,
@@ -27,7 +28,7 @@ export interface TrackingDiagnosticEvent {
   detail?: Record<string, unknown>;
 }
 
-export interface TrackingStatistics {
+export interface TrackingStatistics extends SpeedStatCounters {
   gpsFixes: number;
   pointsMapped: number;
   pointsBuffered: number;
@@ -43,38 +44,6 @@ export interface TrackingStatistics {
   backgroundRestarts: number;
   gpsErrors: number;
   taskStops: number;
-  /** Speed 2A — telemetría observacional local */
-  nativeSpeedSamples: number;
-  derivedSpeedSamples: number;
-  nativeSpeedUnavailable: number;
-  derivedSpeedUnavailable: number;
-  /** Rechazos matemáticos (deltaTime<=0, coords inválidas, etc.) — semántica 2A.1 */
-  rejectedSpeedSamples: number;
-  lastNativeSpeedKmh: number | null;
-  lastDerivedSpeedKmh: number | null;
-  maxNativeSpeedKmh: number | null;
-  maxDerivedSpeedKmh: number | null;
-  avgNativeAvailableSpeedKmh: number | null;
-  avgDerivedAvailableSpeedKmh: number | null;
-  /** Speed 2A.2 — quality gate / fix instrumentation */
-  nativeZeroSamples: number;
-  nativeZeroWhileMoving: number;
-  nativeZeroWhileMovingRate: number | null;
-  derivedGoodSamples: number;
-  derivedWeakSamples: number;
-  derivedRejectedSamples: number;
-  poorAccuracySamples: number;
-  longGapSpeedSamples: number;
-  implausibleSpeedSamples: number;
-  staleFixSamples: number;
-  mockedFixes: number;
-  lastDisplacementQualityRatio: number | null;
-  lastCombinedAccuracyM: number | null;
-  lastFixAgeMs: number | null;
-  lastFixMocked: boolean | null;
-  maxFixAgeMs: number | null;
-  avgGoodDerivedSpeedKmh: number | null;
-  maxGoodDerivedSpeedKmh: number | null;
 }
 
 export interface TrackingSnapshot {
@@ -143,6 +112,7 @@ export interface TrackingDiagnosticExport {
 }
 
 export const EMPTY_TRACKING_STATISTICS: TrackingStatistics = {
+  ...EMPTY_SPEED_STAT_COUNTERS,
   gpsFixes: 0,
   pointsMapped: 0,
   pointsBuffered: 0,
@@ -158,35 +128,6 @@ export const EMPTY_TRACKING_STATISTICS: TrackingStatistics = {
   backgroundRestarts: 0,
   gpsErrors: 0,
   taskStops: 0,
-  nativeSpeedSamples: 0,
-  derivedSpeedSamples: 0,
-  nativeSpeedUnavailable: 0,
-  derivedSpeedUnavailable: 0,
-  rejectedSpeedSamples: 0,
-  lastNativeSpeedKmh: null,
-  lastDerivedSpeedKmh: null,
-  maxNativeSpeedKmh: null,
-  maxDerivedSpeedKmh: null,
-  avgNativeAvailableSpeedKmh: null,
-  avgDerivedAvailableSpeedKmh: null,
-  nativeZeroSamples: 0,
-  nativeZeroWhileMoving: 0,
-  nativeZeroWhileMovingRate: null,
-  derivedGoodSamples: 0,
-  derivedWeakSamples: 0,
-  derivedRejectedSamples: 0,
-  poorAccuracySamples: 0,
-  longGapSpeedSamples: 0,
-  implausibleSpeedSamples: 0,
-  staleFixSamples: 0,
-  mockedFixes: 0,
-  lastDisplacementQualityRatio: null,
-  lastCombinedAccuracyM: null,
-  lastFixAgeMs: null,
-  lastFixMocked: null,
-  maxFixAgeMs: null,
-  avgGoodDerivedSpeedKmh: null,
-  maxGoodDerivedSpeedKmh: null,
 };
 
 export type TrackingHealthCheckOptions = {

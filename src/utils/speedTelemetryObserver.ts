@@ -5,6 +5,7 @@ import {
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
 import {
+  MAX_PLAUSIBLE_ROAD_SPEED_KMH,
   NATIVE_ZERO_MOVING_MIN_DERIVED_KMH,
   STALE_FIX_MS,
 } from '@/types/speedQuality';
@@ -12,6 +13,11 @@ import type {
   SpeedTelemetryObserveContext,
   SpeedTelemetryPreviousFix,
 } from '@/types/speedTelemetry';
+import type { SpeedQuality } from '@/types/speedQuality';
+import { fuseEffectiveSpeed } from '@/utils/effectiveSpeedFusion';
+import {
+  SPEED_DISAGREEMENT_HIGH_KMH,
+} from '@/utils/effectiveSpeedThresholds';
 import { assessSpeedSampleQuality } from '@/utils/speedQualityGate';
 import {
   calculateDerivedSpeedSample,
@@ -38,6 +44,7 @@ let boundSessionId: string | null = null;
 
 let nativeValidCount = 0;
 let derivedValidCount = 0;
+let effectiveValidCount = 0;
 let qualitySampleCount = 0;
 let lastUnavailableReason: string | null = null;
 let unavailableRepeatCount = 0;
@@ -45,6 +52,7 @@ let unavailableRepeatCount = 0;
 function resetSamplingCounters(): void {
   nativeValidCount = 0;
   derivedValidCount = 0;
+  effectiveValidCount = 0;
   qualitySampleCount = 0;
   lastUnavailableReason = null;
   unavailableRepeatCount = 0;
@@ -209,6 +217,59 @@ function handleNativeTelemetry(
   return native;
 }
 
+function handleEffectiveSpeedTelemetry(
+  point: TrackingPointInput,
+  sessionId: string,
+  derivedSpeedKmh: number | null,
+  derivedQuality: SpeedQuality | null,
+): void {
+  const native = parseNativeSpeedMps(point.speed_mps);
+  const decision = fuseEffectiveSpeed({
+    nativeSpeedKmh: native.ok ? native.speedNativeKmh : null,
+    nativeAvailable: native.ok,
+    derivedSpeedKmh,
+    derivedQuality,
+  });
+
+  const detail: Record<string, unknown> = {
+    speedKmh: decision.speedKmh,
+    source: decision.source,
+    confidence: decision.confidence,
+    reason: decision.reason,
+    nativeSpeedKmh: decision.nativeSpeedKmh,
+    derivedSpeedKmh: decision.derivedSpeedKmh,
+    derivedQuality: decision.derivedQuality,
+    disagreementKmh: decision.disagreementKmh,
+  };
+
+  recordSpeedStat('speed-stat-effective', detail, sessionId);
+
+  if (decision.reason === 'derived_recovery_native_zero') {
+    recordTrackingDiagnostic('speed-effective-native-zero-recovered', detail, sessionId);
+  }
+  if (
+    decision.disagreementKmh != null &&
+    decision.disagreementKmh > SPEED_DISAGREEMENT_HIGH_KMH
+  ) {
+    recordTrackingDiagnostic('speed-effective-disagreement', detail, sessionId);
+  }
+  if (
+    (native.ok &&
+      decision.nativeSpeedKmh != null &&
+      decision.nativeSpeedKmh > MAX_PLAUSIBLE_ROAD_SPEED_KMH) ||
+    decision.reason === 'native_implausible_derived_used'
+  ) {
+    recordTrackingDiagnostic('speed-effective-native-implausible', detail, sessionId);
+  }
+
+  if (decision.source !== 'unavailable') {
+    effectiveValidCount += 1;
+    if (shouldEmitInfoEvent(effectiveValidCount)) {
+      recordTrackingDiagnostic('speed-effective', detail, sessionId);
+    }
+  }
+}
+
 function handleDerivedUnavailable(
   reason: string,
   sessionId: string,
@@ -247,10 +308,12 @@ export function observeSpeedTelemetryFromPoint(
   // Derived first so native-zero-moving can use quality of this pair.
   let derivedQualityGood = false;
   let derivedSpeedKmh: number | null = null;
+  let derivedQuality: SpeedQuality | null = null;
 
   if (sessionChanged) {
     handleDerivedUnavailable('session_changed', resolvedSessionId, false);
     handleNativeTelemetry(point, resolvedSessionId, false, null);
+    handleEffectiveSpeedTelemetry(point, resolvedSessionId, null, null);
     commitPreviousFix(resolvedSessionId, point);
     return;
   }
@@ -258,6 +321,7 @@ export function observeSpeedTelemetryFromPoint(
   if (!previousFix) {
     handleDerivedUnavailable('no_previous', resolvedSessionId, false);
     handleNativeTelemetry(point, resolvedSessionId, false, null);
+    handleEffectiveSpeedTelemetry(point, resolvedSessionId, null, null);
     commitPreviousFix(resolvedSessionId, point);
     return;
   }
@@ -288,6 +352,7 @@ export function observeSpeedTelemetryFromPoint(
     });
 
     derivedQualityGood = assessment.quality === 'good';
+    derivedQuality = assessment.quality;
     qualitySampleCount += 1;
 
     const detail: Record<string, unknown> = {
@@ -343,9 +408,11 @@ export function observeSpeedTelemetryFromPoint(
   } else if (derived.reason === 'no_previous') {
     handleDerivedUnavailable('no_previous', resolvedSessionId, false);
   } else {
+    derivedQuality = 'rejected';
     handleDerivedUnavailable(derived.reason, resolvedSessionId, true);
   }
 
   handleNativeTelemetry(point, resolvedSessionId, derivedQualityGood, derivedSpeedKmh);
+  handleEffectiveSpeedTelemetry(point, resolvedSessionId, derivedSpeedKmh, derivedQuality);
   commitPreviousFix(resolvedSessionId, point);
 }

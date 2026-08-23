@@ -33,6 +33,26 @@ export type SpeedStatCounters = {
   maxFixAgeMs: number | null;
   avgGoodDerivedSpeedKmh: number | null;
   maxGoodDerivedSpeedKmh: number | null;
+
+  effectiveSpeedSamples: number;
+  effectiveSpeedUnavailable: number;
+  effectiveNativeSamples: number;
+  effectiveDerivedSamples: number;
+  effectiveHighConfidence: number;
+  effectiveMediumConfidence: number;
+  effectiveLowConfidence: number;
+  nativeZeroRecoveredByDerived: number;
+  nativeImplausibleRejected: number;
+  speedDisagreementSamples: number;
+  lastEffectiveSpeedKmh: number | null;
+  lastEffectiveSpeedSource: string | null;
+  lastEffectiveSpeedConfidence: string | null;
+  lastEffectiveSpeedReason: string | null;
+  avgEffectiveSpeedKmh: number | null;
+  maxEffectiveSpeedKmh: number | null;
+  lastDisagreementKmh: number | null;
+  maxDisagreementKmh: number | null;
+  avgDisagreementKmh: number | null;
 };
 
 /** Stats Speed de la sesión activa o última finalizada (export post-cierre). */
@@ -72,4 +92,23 @@ export const EMPTY_SPEED_STAT_COUNTERS: SpeedStatCounters = {
   maxFixAgeMs: null,
   avgGoodDerivedSpeedKmh: null,
   maxGoodDerivedSpeedKmh: null,
+  effectiveSpeedSamples: 0,
+  effectiveSpeedUnavailable: 0,
+  effectiveNativeSamples: 0,
+  effectiveDerivedSamples: 0,
+  effectiveHighConfidence: 0,
+  effectiveMediumConfidence: 0,
+  effectiveLowConfidence: 0,
+  nativeZeroRecoveredByDerived: 0,
+  nativeImplausibleRejected: 0,
+  speedDisagreementSamples: 0,
+  lastEffectiveSpeedKmh: null,
+  lastEffectiveSpeedSource: null,
+  lastEffectiveSpeedConfidence: null,
+  lastEffectiveSpeedReason: null,
+  avgEffectiveSpeedKmh: null,
+  maxEffectiveSpeedKmh: null,
+  lastDisagreementKmh: null,
+  maxDisagreementKmh: null,
+  avgDisagreementKmh: null,
 };

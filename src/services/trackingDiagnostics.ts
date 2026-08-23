@@ -136,7 +136,8 @@ function normalizeSpeedStatsEventType(type: string): string | null {
       type === 'speed-stat-implausible' ||
       type === 'speed-stat-fix-age' ||
       type === 'speed-stat-mocked' ||
-      type === 'speed-stat-fix-meta'
+      type === 'speed-stat-fix-meta' ||
+      type === 'speed-stat-effective'
     ) {
       return type;
     }
