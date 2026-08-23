@@ -34,8 +34,12 @@ export function resolveSessionPipelineBucket(
   startedAt?: string,
 ): { stats: SessionTrackingPipelineStatistics; reset: boolean } {
   if (!shouldResetSessionPipelineBucket(existing, sessionId) && existing) {
+    const defaults = createEmptySessionTrackingPipelineStatistics(
+      existing.sessionId,
+      existing.startedAt,
+    );
     return {
-      stats: { ...existing, endedAt: null },
+      stats: { ...defaults, ...existing, endedAt: null },
       reset: false,
     };
   }
@@ -211,6 +215,27 @@ export function applyPipelineEventToSession(
       break;
     case 'tracking-fix-invalid':
       next.locationFixesInvalid += 1;
+      break;
+    case 'tracking-fix-temporal-rejected': {
+      next.locationFixesReceived += 1;
+      next.locationFixesInvalid += 1;
+      const temporalReason = detail?.reason;
+      if (temporalReason === 'pre_session_fix') {
+        next.preSessionFixRejected += 1;
+        next.lastPreSessionFixRejectedAt = timestamp;
+      } else if (temporalReason === 'future_fix') {
+        next.futureFixRejected += 1;
+        next.lastFutureFixRejectedAt = timestamp;
+      } else if (
+        temporalReason === 'invalid_timestamp' ||
+        temporalReason === 'no_session_started_at'
+      ) {
+        next.invalidTimestampRejected += 1;
+      }
+      break;
+    }
+    case 'tracking-stat-early-tolerance':
+      next.withinEarlyToleranceAccepted += 1;
       break;
     case 'point-mapped':
       next = updateTimestampGap(next, 'maxValidFixGapMs', next.lastValidFixAt, timestamp);

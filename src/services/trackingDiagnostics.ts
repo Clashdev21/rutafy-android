@@ -607,6 +607,7 @@ export function recordTrackingDiagnostic(
   const appendToRingBuffer =
     !type.startsWith('speed-stat-') &&
     !type.startsWith('motion-stat-') &&
+    !type.startsWith('tracking-stat-') &&
     type !== 'tracking-pipeline-session-start';
 
   enqueuePersist(async () => {

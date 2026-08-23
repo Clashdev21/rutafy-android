@@ -11,6 +11,8 @@ const isWeb = Platform.OS === 'web';
 let lastStorageLoadedSessionId: string | null = null;
 /** Espejo síncrono del sessionId activo (task BG + observer speed). */
 let activeSessionIdSync: string | null = null;
+/** Espejo síncrono del startedAt original de la sesión activa (guard temporal O(1)). */
+let activeSessionStartedAtSync: string | null = null;
 
 async function getRaw(): Promise<string | null> {
   if (isWeb) {
@@ -47,19 +49,26 @@ export const trackingSessionStorage = {
     return activeSessionIdSync;
   },
 
+  getActiveSessionStartedAtSync(): string | null {
+    return activeSessionStartedAtSync;
+  },
+
   async getActive(): Promise<StoredTrackingSession | null> {
     const raw = await getRaw();
     if (!raw) {
       activeSessionIdSync = null;
+      activeSessionStartedAtSync = null;
       return null;
     }
     try {
       const parsed = JSON.parse(raw) as StoredTrackingSession;
       if (!parsed?.sessionId?.trim()) {
         activeSessionIdSync = null;
+        activeSessionStartedAtSync = null;
         return null;
       }
       activeSessionIdSync = parsed.sessionId;
+      activeSessionStartedAtSync = parsed.startedAt?.trim() || null;
       if (parsed.sessionId !== lastStorageLoadedSessionId) {
         lastStorageLoadedSessionId = parsed.sessionId;
         recordTrackingDiagnostic('tracking-storage-loaded', {
@@ -70,6 +79,7 @@ export const trackingSessionStorage = {
       return parsed;
     } catch {
       activeSessionIdSync = null;
+      activeSessionStartedAtSync = null;
       return null;
     }
   },
@@ -77,6 +87,7 @@ export const trackingSessionStorage = {
   async setActive(session: StoredTrackingSession): Promise<void> {
     await setRaw(JSON.stringify(session));
     activeSessionIdSync = session.sessionId;
+    activeSessionStartedAtSync = session.startedAt?.trim() || null;
     recordTrackingDiagnostic('tracking-storage-restored', {
       sessionId: session.sessionId,
       startedAt: session.startedAt,
@@ -96,6 +107,7 @@ export const trackingSessionStorage = {
     await clearRaw();
     lastStorageLoadedSessionId = null;
     activeSessionIdSync = null;
+    activeSessionStartedAtSync = null;
     recordTrackingDiagnostic('tracking-storage-cleared', {}, sessionId);
   },
 };

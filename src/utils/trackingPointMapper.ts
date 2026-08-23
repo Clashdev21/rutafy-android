@@ -4,6 +4,10 @@ import { gpsDetailFromPoint, recordTrackingDiagnostic } from '@/services/trackin
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointAppState, TrackingPointInput } from '@/types/tracking';
 import { observeSpeedTelemetryFromPoint } from '@/utils/speedTelemetryObserver';
+import {
+  evaluateSessionFixTemporalValidity,
+  resolveCapturedAtMs,
+} from '@/utils/trackingTemporalGuard';
 import { observeTrackingPipelineFromPoint } from '@/utils/trackingPipelineObserver';
 
 type CoordsLike = {
@@ -36,7 +40,44 @@ export function toTrackingPoint(
     return null;
   }
 
-  const timestamp = location.timestamp ?? Date.now();
+  const sessionId = trackingSessionStorage.getActiveSessionIdSync();
+  const capturedAtMs = resolveCapturedAtMs(location.timestamp);
+
+  if (sessionId) {
+    const sessionStartedAt = trackingSessionStorage.getActiveSessionStartedAtSync();
+    const sessionStartedAtMs = sessionStartedAt ? Date.parse(sessionStartedAt) : null;
+    const validity = evaluateSessionFixTemporalValidity({
+      capturedAtMs,
+      sessionStartedAtMs:
+        sessionStartedAtMs != null && Number.isFinite(sessionStartedAtMs)
+          ? sessionStartedAtMs
+          : null,
+      nowMs: Date.now(),
+    });
+
+    if (!validity.accepted) {
+      recordTrackingDiagnostic(
+        'tracking-fix-temporal-rejected',
+        {
+          reason: validity.reason,
+          sessionId,
+          capturedAt: capturedAtMs != null ? new Date(capturedAtMs).toISOString() : null,
+          sessionStartedAt: sessionStartedAt ?? null,
+          deltaMs: validity.ageRelativeToSessionMs,
+          ageRelativeToSessionMs: validity.ageRelativeToSessionMs,
+          fixAgeMs: validity.fixAgeMs,
+        },
+        sessionId,
+      );
+      return null;
+    }
+
+    if (validity.reason === 'within_early_tolerance') {
+      recordTrackingDiagnostic('tracking-stat-early-tolerance', {}, sessionId);
+    }
+  }
+
+  const timestamp = capturedAtMs ?? Date.now();
   const speed = coords?.speed;
   const heading = coords?.heading;
 

@@ -44,6 +44,14 @@ export type SessionTrackingPipelineStatistics = {
   foregroundTransitions: number;
   backgroundTransitions: number;
 
+  preSessionFixRejected: number;
+  futureFixRejected: number;
+  invalidTimestampRejected: number;
+  withinEarlyToleranceAccepted: number;
+
+  lastPreSessionFixRejectedAt: string | null;
+  lastFutureFixRejectedAt: string | null;
+
   lastLocationCallbackAt: string | null;
   lastFixReceivedAt: string | null;
   lastValidFixAt: string | null;
@@ -178,6 +186,12 @@ export function createEmptySessionTrackingPipelineStatistics(
     taskErrors: 0,
     foregroundTransitions: 0,
     backgroundTransitions: 0,
+    preSessionFixRejected: 0,
+    futureFixRejected: 0,
+    invalidTimestampRejected: 0,
+    withinEarlyToleranceAccepted: 0,
+    lastPreSessionFixRejectedAt: null,
+    lastFutureFixRejectedAt: null,
     lastLocationCallbackAt: null,
     lastFixReceivedAt: null,
     lastValidFixAt: null,
