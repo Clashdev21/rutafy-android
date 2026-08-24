@@ -7,6 +7,10 @@ import { AppState } from 'react-native';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { SessionMotionTimeline, MotionTimelineBucket } from '@/types/motionActivity';
 import type { SessionMotionStatistics } from '@/types/sessionMotionStatistics';
+import type {
+  SessionMotionStateStatistics,
+  SessionMotionStateTimeline,
+} from '@/types/sessionMotionStateStatistics';
 import type { SessionSpeedStatistics } from '@/types/sessionSpeedStatistics';
 import type {
   SessionAppStateTimeline,
@@ -15,6 +19,8 @@ import type {
   SessionTrackingGapTimeline,
   SessionTrackingPipelineStatistics,
 } from '@/types/sessionTrackingPipeline';
+import type { MotionStateStepResult } from '@/types/motionState';
+import type { EffectiveSpeedDecision } from '@/types/effectiveSpeed';
 import type {
   TrackingDiagnosticEvent,
   TrackingDiagnosticExport,
@@ -41,6 +47,13 @@ import {
 } from '@/utils/sessionTrackingPipelineStatistics';
 import type { ClassifyTrackingGapResult } from '@/utils/trackingGapClassifier';
 import {
+  applyMotionStateStepToSession,
+  appendMotionStateTransition,
+  createEmptyMotionStateTimeline,
+  markSessionMotionStateEnded,
+  resolveSessionMotionStateBucket,
+} from '@/utils/sessionMotionStateStatistics';
+import {
   applyMotionCoverageGap,
   applyMotionWindowToSession,
   markSessionMotionEnded,
@@ -66,6 +79,9 @@ const SESSION_SPEED_STATS_KEY = 'rutafy_tracking_diag_session_speed_stats';
 const SESSION_MOTION_STATS_KEY = 'rutafy_tracking_diag_session_motion_stats';
 /** Speed 2B.1 — timeline acotada de la sesión actual/última. */
 const SESSION_MOTION_TIMELINE_KEY = 'rutafy_tracking_diag_session_motion_timeline';
+/** Tracking 3C — motion state (effectiveSpeed-based), distinto de acelerómetro 2B. */
+const SESSION_MOTION_STATE_STATS_KEY = 'rutafy_tracking_diag_session_motion_state_stats';
+const SESSION_MOTION_STATE_TIMELINE_KEY = 'rutafy_tracking_diag_session_motion_state_timeline';
 /** Reliability 3A — pipeline session-scoped. */
 const SESSION_PIPELINE_STATS_KEY = 'rutafy_tracking_diag_session_pipeline_stats';
 const SESSION_GAP_STATS_KEY = 'rutafy_tracking_diag_session_gap_stats';
@@ -405,6 +421,111 @@ export function recordMotionCoverageGap(sessionId: string, detail?: Record<strin
   if (!sessionId.trim()) return;
   patchSessionMotionStatistics(sessionId, (stats) => applyMotionCoverageGap(stats));
   recordTrackingDiagnostic('motion-coverage-gap', detail, sessionId);
+}
+
+// ─── Tracking 3C — motion state (effectiveSpeed-based) ─────────────────────────
+
+export function beginSessionMotionStateStatistics(sessionId: string): void {
+  if (!sessionId.trim()) return;
+  enqueuePersist(async () => {
+    const [existing, existingTimeline] = await Promise.all([
+      readJson<SessionMotionStateStatistics | null>(SESSION_MOTION_STATE_STATS_KEY, null),
+      readJson<SessionMotionStateTimeline | null>(SESSION_MOTION_STATE_TIMELINE_KEY, null),
+    ]);
+    const { stats, reset } = resolveSessionMotionStateBucket(existing, sessionId);
+    const writes: Promise<void>[] = [writeJson(SESSION_MOTION_STATE_STATS_KEY, stats)];
+    if (reset || !existingTimeline || existingTimeline.sessionId !== sessionId) {
+      writes.push(writeJson(SESSION_MOTION_STATE_TIMELINE_KEY, createEmptyMotionStateTimeline(sessionId)));
+    }
+    await Promise.all(writes);
+  });
+}
+
+export async function endSessionMotionStateStatistics(): Promise<void> {
+  await runOnPersistChain(async () => {
+    const existing = await readJson<SessionMotionStateStatistics | null>(
+      SESSION_MOTION_STATE_STATS_KEY,
+      null,
+    );
+    if (!existing) return;
+    await writeJson(SESSION_MOTION_STATE_STATS_KEY, markSessionMotionStateEnded(existing));
+  });
+}
+
+export async function getSessionMotionStateStatistics(): Promise<SessionMotionStateStatistics | null> {
+  return readJson<SessionMotionStateStatistics | null>(SESSION_MOTION_STATE_STATS_KEY, null);
+}
+
+export async function getSessionMotionStateTimeline(): Promise<SessionMotionStateTimeline | null> {
+  return readJson<SessionMotionStateTimeline | null>(SESSION_MOTION_STATE_TIMELINE_KEY, null);
+}
+
+export function recordMotionStateStepDiagnostic(
+  sessionId: string,
+  timestampIso: string,
+  step: MotionStateStepResult,
+  effectiveSpeed: EffectiveSpeedDecision,
+): void {
+  if (!sessionId.trim()) return;
+
+  enqueuePersist(async () => {
+    const [stats, timeline] = await Promise.all([
+      readJson<SessionMotionStateStatistics | null>(SESSION_MOTION_STATE_STATS_KEY, null),
+      readJson<SessionMotionStateTimeline | null>(SESSION_MOTION_STATE_TIMELINE_KEY, null),
+    ]);
+    const baseStats =
+      stats && stats.sessionId === sessionId
+        ? stats
+        : resolveSessionMotionStateBucket(null, sessionId).stats;
+    const baseTimeline =
+      timeline && timeline.sessionId === sessionId
+        ? timeline
+        : createEmptyMotionStateTimeline(sessionId);
+
+    const nextStats = applyMotionStateStepToSession(baseStats, step, effectiveSpeed, timestampIso);
+    let nextTimeline = baseTimeline;
+    if (step.transition) {
+      nextTimeline = appendMotionStateTransition(
+        baseTimeline,
+        step.transition,
+        effectiveSpeed,
+        timestampIso,
+      );
+    }
+
+    await Promise.all([
+      writeJson(SESSION_MOTION_STATE_STATS_KEY, nextStats),
+      writeJson(SESSION_MOTION_STATE_TIMELINE_KEY, nextTimeline),
+    ]);
+  });
+
+  if (step.transition) {
+    recordTrackingDiagnostic(
+      'motion-state-transition',
+      {
+        from: step.transition.from,
+        to: step.transition.to,
+        reason: step.transition.reason,
+        effectiveSpeedKmh: effectiveSpeed.speedKmh,
+        effectiveSpeedSource: effectiveSpeed.source,
+        confidence: effectiveSpeed.confidence,
+      },
+      sessionId,
+    );
+  } else {
+    recordTrackingDiagnostic(
+      'motion-stat-sample',
+      {
+        state: step.snapshot.currentState,
+        reason: step.reason,
+        candidateState: step.snapshot.candidateState,
+        candidateSampleCount: step.snapshot.candidateSampleCount,
+        effectiveSpeedKmh: effectiveSpeed.speedKmh,
+        effectiveSpeedSource: effectiveSpeed.source,
+      },
+      sessionId,
+    );
+  }
 }
 
 // ─── Reliability 3A — session pipeline observability ─────────────────────────
@@ -863,6 +984,8 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     sessionSpeedStatistics,
     sessionMotionStatistics,
     sessionMotionTimeline,
+    sessionMotionStateStatistics,
+    motionStateTimeline,
     sessionTrackingPipelineStatistics,
     sessionTrackingGapStatistics,
     trackingGapTimeline,
@@ -877,6 +1000,8 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     getSessionSpeedStatistics(),
     getSessionMotionStatistics(),
     getSessionMotionTimeline(),
+    getSessionMotionStateStatistics(),
+    getSessionMotionStateTimeline(),
     getSessionTrackingPipelineStatistics(),
     getSessionTrackingGapStatistics(),
     getSessionTrackingGapTimeline(),
@@ -962,6 +1087,8 @@ export async function buildTrackingDiagnosticExport(): Promise<TrackingDiagnosti
     sessionSpeedStatistics,
     sessionMotionStatistics,
     sessionMotionTimeline,
+    sessionMotionStateStatistics,
+    motionStateTimeline,
     sessionTrackingPipelineStatistics,
     sessionTrackingGapStatistics,
     trackingGapTimeline,

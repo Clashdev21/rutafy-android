@@ -1,5 +1,6 @@
 import type { SessionMotionStatistics } from './sessionMotionStatistics';
 import type { SessionMotionTimeline } from './motionActivity';
+import type { SessionMotionStateStatistics, SessionMotionStateTimeline } from './sessionMotionStateStatistics';
 import type { SessionSpeedStatistics, SpeedStatCounters } from './sessionSpeedStatistics';
 import { EMPTY_SPEED_STAT_COUNTERS } from './sessionSpeedStatistics';
 import type {
@@ -96,6 +97,10 @@ export interface TrackingDiagnosticExport {
   sessionMotionStatistics: SessionMotionStatistics | null;
   /** Speed 2B.1 — timeline acotada (~30s buckets) de la misma sesión. */
   sessionMotionTimeline: SessionMotionTimeline | null;
+  /** Tracking 3C — motion state effectiveSpeed-based (moving/stationary/unknown). */
+  sessionMotionStateStatistics: SessionMotionStateStatistics | null;
+  /** Tracking 3C — transiciones confirmadas de motion state. */
+  motionStateTimeline: SessionMotionStateTimeline | null;
   /** Reliability 3A — contadores session-scoped del pipeline de tracking. */
   sessionTrackingPipelineStatistics: SessionTrackingPipelineStatistics | null;
   /** Reliability 3A — agregados de gaps entre fixes válidos. */

@@ -6,6 +6,7 @@ import {
   stopMotionTelemetryForSession,
 } from '@/services/motionTelemetryService';
 import {
+  endSessionMotionStateStatistics,
   endSessionSpeedStatistics,
   endSessionTrackingPipelineStatistics,
   recordTrackingDiagnostic,
@@ -15,6 +16,7 @@ import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { AuthUser } from '@/types/auth';
 import type { StoredTrackingSession, TrackingSession } from '@/types/tracking';
 import type { TrackingSessionEndReason } from '@/types/trackingDiagnostics';
+import { resetMotionStateObserver } from '@/utils/motionStateObserver';
 import { resetSpeedTelemetryForNewSession, resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelinePreviousFix } from '@/utils/trackingPipelineObserver';
 
@@ -85,8 +87,10 @@ export async function cleanupLocalTrackingSession(reason: string): Promise<void>
   recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
   await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
+  await endSessionMotionStateStatistics();
   await endSessionTrackingPipelineStatistics();
   resetSpeedTelemetryPreviousFix();
+  resetMotionStateObserver();
   resetTrackingPipelinePreviousFix();
   await stopOperatorTrackingAsync();
   await trackingSessionStorage.clearActive();
