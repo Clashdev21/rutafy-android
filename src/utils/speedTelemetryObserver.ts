@@ -14,6 +14,8 @@ import type {
   SpeedTelemetryPreviousFix,
 } from '@/types/speedTelemetry';
 import type { SpeedQuality } from '@/types/speedQuality';
+import type { TrackingEnrichedTelemetry } from '@/types/trackingTelemetry';
+import { telemetryFromDecisions } from '@/types/trackingTelemetry';
 import { fuseEffectiveSpeed } from '@/utils/effectiveSpeedFusion';
 import { observeMotionStateFromEffectiveSpeed, resetMotionStateForNewSession } from '@/utils/motionStateObserver';
 import {
@@ -225,7 +227,7 @@ function handleEffectiveSpeedTelemetry(
   derivedSpeedKmh: number | null,
   derivedQuality: SpeedQuality | null,
   deltaMsFromPreviousSample: number | null,
-): void {
+): TrackingEnrichedTelemetry {
   const native = parseNativeSpeedMps(point.speed_mps);
   const decision = fuseEffectiveSpeed({
     nativeSpeedKmh: native.ok ? native.speedNativeKmh : null,
@@ -272,12 +274,14 @@ function handleEffectiveSpeedTelemetry(
     }
   }
 
-  observeMotionStateFromEffectiveSpeed(
+  const motion = observeMotionStateFromEffectiveSpeed(
     sessionId,
     point.captured_at,
     decision,
     deltaMsFromPreviousSample,
   );
+
+  return telemetryFromDecisions(decision, motion.state, motion.reason);
 }
 
 function handleDerivedUnavailable(
@@ -297,8 +301,8 @@ function handleDerivedUnavailable(
 }
 
 /**
- * Observación local de velocidad (Speed 2A / 2A.1 / 2A.2).
- * No modifica el punto ni el payload al backend.
+ * Observación local de velocidad (Speed 2A / 2A.1 / 2A.2) + snapshot 3D.1.
+ * No muta speed_mps. Retorna telemetría del MISMO fix para enrichment metadata.
  *
  * Nota: native=0 NO implica vehículo detenido (Expo/Android puede omitir hasSpeed).
  */
@@ -306,11 +310,11 @@ export function observeSpeedTelemetryFromPoint(
   point: TrackingPointInput,
   sessionId?: string,
   context?: SpeedTelemetryObserveContext,
-): void {
+): TrackingEnrichedTelemetry | null {
   const activeSessionId = sessionId ?? trackingSessionStorage.getActiveSessionIdSync();
   const { sessionId: resolvedSessionId, sessionChanged } = ensureSessionBinding(activeSessionId);
   if (!resolvedSessionId) {
-    return;
+    return null;
   }
 
   observeFixMeta(context, resolvedSessionId);
@@ -333,17 +337,29 @@ export function observeSpeedTelemetryFromPoint(
   if (sessionChanged) {
     handleDerivedUnavailable('session_changed', resolvedSessionId, false);
     handleNativeTelemetry(point, resolvedSessionId, false, null);
-    handleEffectiveSpeedTelemetry(point, resolvedSessionId, null, null, safeDelta);
+    const telemetry = handleEffectiveSpeedTelemetry(
+      point,
+      resolvedSessionId,
+      null,
+      null,
+      safeDelta,
+    );
     commitPreviousFix(resolvedSessionId, point);
-    return;
+    return telemetry;
   }
 
   if (!previousFix) {
     handleDerivedUnavailable('no_previous', resolvedSessionId, false);
     handleNativeTelemetry(point, resolvedSessionId, false, null);
-    handleEffectiveSpeedTelemetry(point, resolvedSessionId, null, null, safeDelta);
+    const telemetry = handleEffectiveSpeedTelemetry(
+      point,
+      resolvedSessionId,
+      null,
+      null,
+      safeDelta,
+    );
     commitPreviousFix(resolvedSessionId, point);
-    return;
+    return telemetry;
   }
 
   const previousAccuracyM = previousFix.accuracyM;
@@ -433,7 +449,7 @@ export function observeSpeedTelemetryFromPoint(
   }
 
   handleNativeTelemetry(point, resolvedSessionId, derivedQualityGood, derivedSpeedKmh);
-  handleEffectiveSpeedTelemetry(
+  const telemetry = handleEffectiveSpeedTelemetry(
     point,
     resolvedSessionId,
     derivedSpeedKmh,
@@ -441,4 +457,5 @@ export function observeSpeedTelemetryFromPoint(
     safeDelta,
   );
   commitPreviousFix(resolvedSessionId, point);
+  return telemetry;
 }

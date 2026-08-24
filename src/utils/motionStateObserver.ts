@@ -9,11 +9,17 @@ import {
   recordMotionStateStepDiagnostic,
 } from '@/services/trackingDiagnostics';
 import type { EffectiveSpeedDecision } from '@/types/effectiveSpeed';
+import type { MotionState, MotionStateReason } from '@/types/motionState';
 import {
   createInitialMotionStateMachineSnapshot,
   snapshotFromSessionStats,
   stepMotionStateMachine,
 } from '@/utils/motionStateMachine';
+
+export type MotionStateObserveResult = {
+  state: MotionState;
+  reason: MotionStateReason;
+};
 
 let boundSessionId: string | null = null;
 let machineSnapshot = createInitialMotionStateMachineSnapshot(Date.now());
@@ -47,15 +53,19 @@ export function observeMotionStateFromEffectiveSpeed(
   effectiveSpeed: EffectiveSpeedDecision,
   deltaMsFromPreviousSample: number | null,
   motionActivityLevel?: 'low' | 'medium' | 'high' | null,
-): void {
-  if (!sessionId.trim()) return;
+): MotionStateObserveResult {
+  if (!sessionId.trim()) {
+    return { state: machineSnapshot.currentState, reason: 'session_start_unknown' };
+  }
 
   if (boundSessionId !== sessionId) {
     resetMotionStateForNewSession(sessionId);
   }
 
   const timestampMs = Date.parse(capturedAtIso);
-  if (!Number.isFinite(timestampMs)) return;
+  if (!Number.isFinite(timestampMs)) {
+    return { state: machineSnapshot.currentState, reason: 'insufficient_speed_evidence' };
+  }
 
   const step = stepMotionStateMachine({
     snapshot: machineSnapshot,
@@ -73,6 +83,11 @@ export function observeMotionStateFromEffectiveSpeed(
     step,
     effectiveSpeed,
   );
+
+  return {
+    state: step.snapshot.currentState,
+    reason: step.reason,
+  };
 }
 
 export function restoreMotionStateFromSessionStats(

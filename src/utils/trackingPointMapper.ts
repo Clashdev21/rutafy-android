@@ -4,6 +4,7 @@ import { gpsDetailFromPoint, recordTrackingDiagnostic } from '@/services/trackin
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointAppState, TrackingPointInput } from '@/types/tracking';
 import { observeSpeedTelemetryFromPoint } from '@/utils/speedTelemetryObserver';
+import { enrichTrackingPointTelemetry } from '@/utils/trackingTelemetryEnrichment';
 import {
   evaluateSessionFixTemporalValidity,
   resolveCapturedAtMs,
@@ -97,7 +98,7 @@ export function toTrackingPoint(
     metadata,
   };
 
-  // Contexto observacional Speed 2A.2 — NO se añade al batch API.
+  // Contexto observacional Speed 2A.2 + snapshot 3D.1 para metadata.
   const locationTimestampMs =
     typeof location.timestamp === 'number' && Number.isFinite(location.timestamp)
       ? location.timestamp
@@ -111,11 +112,16 @@ export function toTrackingPoint(
 
   recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point));
   observeTrackingPipelineFromPoint(point, trackingSessionStorage.getActiveSessionIdSync());
-  observeSpeedTelemetryFromPoint(point, undefined, {
+  const telemetry = observeSpeedTelemetryFromPoint(point, undefined, {
     fixAgeMs,
     mocked,
     locationTimestampMs,
   });
+
+  // Tracking 3D.1 — metadata aditiva del MISMO fix (speed_mps intacto).
+  if (telemetry) {
+    return enrichTrackingPointTelemetry(point, telemetry);
+  }
   return point;
 }
 
