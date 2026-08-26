@@ -25,6 +25,10 @@ export default function MensajeroLayout() {
           options={{ title: 'Notificaciones push', headerShown: false }}
         />
         <Stack.Screen
+          name="editar-perfil/index"
+          options={{ title: 'Editar perfil', headerShown: false }}
+        />
+        <Stack.Screen
           name="[id]"
           options={{ title: 'Detalle', headerShown: true, ...RutafyStackHeaderOptions }}
         />

@@ -1,3 +1,4 @@
+import { type Href, router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
@@ -17,7 +18,8 @@ export default function MensajeroCuentaScreen() {
       user={user}
       roleLabel="Mensajero"
       onLogout={() => void logout()}
-      logoutLoading={authLoading}>
+      logoutLoading={authLoading}
+      onEditProfile={() => router.push('/mensajero/editar-perfil' as Href)}>
       <RutafyCard style={styles.statusCard}>
         <Text style={styles.cardTitle}>Estado operativo</Text>
         <Text style={styles.cardBody}>

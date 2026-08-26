@@ -25,6 +25,10 @@ export default function TransportistaLayout() {
           options={{ title: 'Detalle', headerShown: false }}
         />
         <Stack.Screen
+          name="editar-perfil/index"
+          options={{ title: 'Editar perfil', headerShown: false }}
+        />
+        <Stack.Screen
           name="[id]"
           options={{ title: 'Detalle', headerShown: true, ...RutafyStackHeaderOptions }}
         />

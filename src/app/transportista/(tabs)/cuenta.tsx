@@ -20,7 +20,8 @@ export default function TransportistaCuentaScreen() {
       user={user}
       roleLabel="Transportista"
       onLogout={() => void logout()}
-      logoutLoading={isLoading}>
+      logoutLoading={isLoading}
+      onEditProfile={() => router.push('/transportista/editar-perfil' as Href)}>
       <View style={styles.block}>
         <SettingsSection title="Captura logística">
           <SettingsRow

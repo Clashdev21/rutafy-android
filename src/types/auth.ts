@@ -34,6 +34,13 @@ export type RegisterTransportistaPayload = {
   vehicle_reference?: string;
 };
 
+/** Campos editables vía PATCH /v1/auth/profile (PROFILE 1C). */
+export type UpdateProfileInput = {
+  name?: string;
+  phone?: string;
+  email?: string | null;
+};
+
 export type TokenPairResponse = {
   access_token?: string;
   accessToken?: string;
