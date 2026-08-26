@@ -275,6 +275,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
+  const refreshCurrentUser = useCallback(async (): Promise<AuthUser> => {
+    const me = await authService.fetchCurrentUser();
+    if (!me.actor_id?.trim() || !isMobileSupportedRole(me.appRole)) {
+      throw new Error('Sesión sin actor operativo válido');
+    }
+    if (isAdminRole(me.appRole)) {
+      throw new Error('ADMIN_NOT_SUPPORTED');
+    }
+    setUser(me);
+    setHasPersistedSession(true);
+    setError(null);
+    return me;
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -285,8 +299,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       registerTransportista,
       logout,
       refreshSession,
+      refreshCurrentUser,
     }),
-    [user, isLoading, hasPersistedSession, error, login, registerTransportista, logout, refreshSession],
+    [
+      user,
+      isLoading,
+      hasPersistedSession,
+      error,
+      login,
+      registerTransportista,
+      logout,
+      refreshSession,
+      refreshCurrentUser,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

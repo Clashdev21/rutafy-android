@@ -24,6 +24,7 @@ type Props = {
   roleLabel: string;
   onLogout: () => void;
   logoutLoading?: boolean;
+  onEditProfile?: () => void;
   children?: ReactNode;
 };
 
@@ -32,6 +33,7 @@ export function RutafyCuentaScreen({
   roleLabel,
   onLogout,
   logoutLoading,
+  onEditProfile,
   children,
 }: Props) {
   return (
@@ -44,9 +46,23 @@ export function RutafyCuentaScreen({
         <InfoRow label="Rol" value={roleLabel} />
         <InfoRow label="Nombre" value={user?.name?.trim() || '—'} />
         <InfoRow label="Teléfono" value={user?.phone?.trim() || '—'} />
-        <InfoRow label="Correo" value={user?.email?.trim() || '—'} />
-        {user?.actor_id ? <InfoRow label="ID operativo" value={user.actor_id} /> : null}
+        <InfoRow label="Correo" value={user?.email?.trim() || 'Sin correo'} />
+        {onEditProfile ? (
+          <RutafyButton
+            label="Editar perfil"
+            variant="secondary"
+            onPress={onEditProfile}
+            style={styles.editBtn}
+          />
+        ) : null}
       </RutafyCard>
+
+      {user?.actor_id ? (
+        <RutafyCard style={styles.card}>
+          <Text style={styles.cardTitle}>Información técnica</Text>
+          <InfoRow label="ID operativo" value={user.actor_id} />
+        </RutafyCard>
+      ) : null}
 
       {children}
 
@@ -88,4 +104,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: RutafyColors.textPrimary,
   },
+  editBtn: { marginTop: Spacing.one },
 });

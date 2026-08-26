@@ -11,6 +11,8 @@ export type AuthContextValue = {
   registerTransportista: (payload: RegisterTransportistaPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  /** Recarga /v1/auth/me y actualiza user sin flujo de login/logout. */
+  refreshCurrentUser: () => Promise<AuthUser>;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

@@ -3,6 +3,7 @@ export const AUTH_ENDPOINTS = {
   registerTransportista: '/v1/auth/register-transportista',
   refresh: '/v1/auth/refresh',
   me: '/v1/auth/me',
+  profile: '/v1/auth/profile',
   logout: '/v1/auth/logout',
 } as const;
 

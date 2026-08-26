@@ -9,8 +9,10 @@ import type {
   LoginCredentials,
   RegisterTransportistaPayload,
   TokenPairResponse,
+  UpdateProfileInput,
 } from '@/types/auth';
 import { normalizeAuthUser } from '@/utils/normalizeAuthUser';
+import { sanitizeProfilePayload } from '@/utils/profileEditing';
 
 function pickAccessToken(data: TokenPairResponse): string | null {
   const token = data.access_token ?? data.accessToken;
@@ -147,6 +149,19 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
     throw new Error('Respuesta /v1/auth/me inválida');
   }
   return user;
+}
+
+/**
+ * PATCH /v1/auth/profile — no muta tokens.
+ * Tras éxito refresca /v1/auth/me como source of truth.
+ */
+export async function updateProfile(input: UpdateProfileInput): Promise<AuthUser> {
+  const body = sanitizeProfilePayload(input);
+  if (Object.keys(body).length === 0) {
+    throw new Error('no_fields_to_update');
+  }
+  await apiClient.patch(AUTH_ENDPOINTS.profile, body);
+  return fetchCurrentUser();
 }
 
 export async function logout(): Promise<void> {
