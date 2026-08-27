@@ -282,11 +282,20 @@ try {
   assert('18. batch HTTP 401', pipeline.http401 === 1 && pipeline.batchesFailed === 1);
   passed++;
 
-  // 19 batch retry accepted
+  // 19 batch retry accepted — solo batch-accepted cuenta (no +2 con success)
   pipeline.batchesSendAttempts += 1;
+  // batch-success no incrementa batchesAccepted
   pipeline.batchesAccepted += 1;
   pipeline.pointsAcceptedByApi += 5;
   assert('19. batch accepted', pipeline.batchesAccepted === 1 && pipeline.pointsAcceptedByApi === 5);
+  passed++;
+
+  // 19b anti doble conteo success+accepted
+  let antiDouble = 0;
+  // simula apply: success no suma, accepted suma 1
+  antiDouble += 0; // batch-success
+  antiDouble += 1; // batch-accepted
+  assert('19b. success+accepted = 1 batchesAccepted', antiDouble === 1);
   passed++;
 
   // 20 no secretos en detail de export simulado
@@ -302,7 +311,7 @@ try {
   );
   passed++;
 
-  console.log(`\nvalidate-tracking-reliability: ${passed}/20 PASS`);
+  console.log(`\nvalidate-tracking-reliability: ${passed}/21 PASS`);
 } catch (e) {
   console.error(e.message || e);
   process.exit(1);

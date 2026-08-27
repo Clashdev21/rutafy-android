@@ -11,7 +11,8 @@ const STALE_SECONDS = 180;
 const PIPELINE_STAGES = [
   { key: 'gps', label: 'GPS', events: ['gps-fix-received'] },
   { key: 'mapper', label: 'Mapper', events: ['point-mapped'] },
-  { key: 'buffer', label: 'Buffer', events: ['point-buffered'] },
+  { key: 'buffer', label: 'Buffer FG', events: ['point-buffered'] },
+  { key: 'queueBg', label: 'Queue BG', events: ['point-queued-background'] },
   { key: 'batch', label: 'Batch', events: ['batch-created', 'batch-send'] },
   { key: 'http', label: 'HTTP', events: ['batch-success', 'batch-error', 'batch-401', 'batch-403', 'batch-500', 'batch-timeout'] },
   { key: 'accepted', label: 'Accepted', events: ['batch-accepted'] },

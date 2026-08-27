@@ -19,12 +19,18 @@ import {
   stopOperatorTrackingAsync,
 } from '@/services/operatorTrackingService';
 import {
+  beginOperatorSessionFinalization,
+  drainOperatorPendingForSessionEnd,
+  endOperatorSessionFinalization,
+} from '@/services/operatorTrackingTask';
+import {
   gpsDetailFromPoint,
   recordTrackingDiagnostic,
   runTrackingHealthCheck,
   setSessionEndReason,
 } from '@/services/trackingDiagnostics';
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
+import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type {
   StoredTrackingSession,
@@ -34,6 +40,12 @@ import type {
 import { getApiErrorMessage } from '@/utils/errors';
 import { assertCanStartOperatorCapture } from '@/utils/operatorTrackingGuards';
 import { logOperatorBgHealth } from '@/utils/operatorTrackingHealthAudit';
+import {
+  FINALIZATION_DRAIN_TIMEOUT_MS,
+  shouldClearPendingQueueAfterEnd,
+  shouldProceedWithRemoteEnd,
+  shouldPreservePendingOnEndFailure,
+} from '@/utils/operatorTrackingFinalization';
 import {
   buildStoredTrackingSession,
   cleanupLocalTrackingSession,
@@ -202,15 +214,20 @@ export function useOperatorTrackingSession() {
         });
       }
       const { accepted } = await sendTrackingPointsBatch(sessionId, batch);
-      const latencyMs = Date.now() - batchStartedAt;
-      recordTrackingDiagnostic(
-        'batch-success',
-        { channel: 'foreground', pointCount: batch.length, latencyMs },
-        sessionId,
-      );
+      const totalLatencyMs = Date.now() - batchStartedAt;
+      const latencyDetail = {
+        channel: 'foreground' as const,
+        pointCount: batch.length,
+        latencyMs: totalLatencyMs,
+        totalLatencyMs,
+        // FG usa axios+interceptor: auth no se separa de forma fiable aquí.
+        apiLatencyMs: totalLatencyMs,
+        authLatencyMs: 0,
+      };
+      recordTrackingDiagnostic('batch-success', latencyDetail, sessionId);
       recordTrackingDiagnostic(
         'batch-accepted',
-        { channel: 'foreground', accepted, latencyMs },
+        { ...latencyDetail, accepted },
         sessionId,
       );
       setPointsSent((n) => n + accepted);
@@ -507,6 +524,7 @@ export function useOperatorTrackingSession() {
       const stored = buildStoredTrackingSession(session, user, label);
 
       await operatorTrackingHealthStorage.clear();
+      await operatorTrackingPendingQueue.clear();
       await trackingSessionStorage.setActive(stored);
       resetSpeedTelemetryForNewSession(stored.sessionId);
       resetTrackingPipelineForNewSession(stored.sessionId);
@@ -555,10 +573,10 @@ export function useOperatorTrackingSession() {
     runOperatorBgHealthCheck,
   ]);
 
-  const finalizeCaptureLocally = useCallback(async () => {
+  const finalizeCaptureLocally = useCallback(async (pendingQueuePolicy: 'always' | 'if-empty' | 'never' = 'always') => {
     await stopOperatorBackground();
     stopWatch();
-    await cleanupLocalTrackingSession('capture_closed');
+    await cleanupLocalTrackingSession('capture_closed', { pendingQueuePolicy });
     resetInactiveSessionState();
   }, [resetInactiveSessionState, stopOperatorBackground, stopWatch]);
 
@@ -573,8 +591,49 @@ export function useOperatorTrackingSession() {
     if (__DEV__) {
       console.log('[tracking-end-start]', { sessionId: shortSessionId(sessionId) });
     }
+
+    beginOperatorSessionFinalization();
     try {
+      // 1) Detener nuevas capturas (callback in-flight puede encolar; finalization lo retiene).
+      stopWatch();
+      await stopOperatorBackground();
+      operatorBgActiveRef.current = false;
+      setOperatorBgActive(false);
+
+      // 2) Drenar buffer FG (si quedó algo con BG off).
       await flushBuffer(sessionId);
+
+      // 3) Esperar POST in-flight + drenar cola durable mientras session ACTIVE.
+      const drain = await drainOperatorPendingForSessionEnd(
+        sessionId,
+        FINALIZATION_DRAIN_TIMEOUT_MS,
+      );
+
+      if (!shouldProceedWithRemoteEnd(drain)) {
+        if (drain.status === 'session_not_active') {
+          setError('La sesión ya no está activa en el servidor.');
+          await finalizeCaptureLocally('always');
+          return null;
+        }
+        const msg =
+          drain.status === 'timeout'
+            ? 'No se pudieron enviar todos los puntos a tiempo. La captura sigue activa; reintenta finalizar.'
+            : 'Error de red al enviar puntos pendientes. La captura sigue activa; reintenta finalizar.';
+        setError(msg);
+        if (shouldPreservePendingOnEndFailure(drain)) {
+          const restarted = await startOperatorTrackingAsync();
+          operatorBgActiveRef.current = restarted;
+          setOperatorBgActive(restarted);
+          try {
+            await startWatch(sessionId);
+          } catch {
+            // permiso / watch: sesión local sigue; pending preservado
+          }
+        }
+        return null;
+      }
+
+      // 4) Solo entonces cerrar en backend.
       const result = await endTrackingSession(sessionId);
       if (__DEV__) {
         console.log('[tracking-end-ok]', {
@@ -584,7 +643,9 @@ export function useOperatorTrackingSession() {
       }
       recordTrackingDiagnostic('tracking-stop', { status: result.session.status }, sessionId);
       await setSessionEndReason('user');
-      await finalizeCaptureLocally();
+      await finalizeCaptureLocally(
+        shouldClearPendingQueueAfterEnd(drain) ? 'if-empty' : 'never',
+      );
       setSuccessMessage('Captura finalizada correctamente.');
       return result.session.session_id;
     } catch (e) {
@@ -593,12 +654,22 @@ export function useOperatorTrackingSession() {
       if (__DEV__) {
         console.warn('[tracking-end-error]', { sessionId: shortSessionId(sessionId), msg });
       }
+      // Preservar cola; intentar restaurar captura.
+      try {
+        const restarted = await startOperatorTrackingAsync();
+        operatorBgActiveRef.current = restarted;
+        setOperatorBgActive(restarted);
+        await startWatch(sessionId);
+      } catch {
+        // pending intacto
+      }
       return null;
     } finally {
+      endOperatorSessionFinalization();
       setBusy(false);
       setClosingAction(null);
     }
-  }, [finalizeCaptureLocally, flushBuffer]);
+  }, [finalizeCaptureLocally, flushBuffer, startWatch, stopOperatorBackground, stopWatch]);
 
   const cancelCapture = useCallback(async (): Promise<boolean> => {
     const sessionId = sessionIdRef.current;
@@ -611,8 +682,27 @@ export function useOperatorTrackingSession() {
     if (__DEV__) {
       console.log('[tracking-cancel-start]', { sessionId: shortSessionId(sessionId) });
     }
+
+    beginOperatorSessionFinalization();
     try {
-      await flushBuffer(sessionId);
+      // CANCEL = abandono: no prioriza drenar puntos (discard explícito).
+      stopWatch();
+      await stopOperatorBackground();
+      operatorBgActiveRef.current = false;
+      setOperatorBgActive(false);
+
+      const pendingBefore = await operatorTrackingPendingQueue.depth(sessionId);
+      recordTrackingDiagnostic(
+        'finalization-pending-points',
+        {
+          channel: 'cancel',
+          pendingRemaining: pendingBefore,
+          discarded: true,
+          reason: 'cancel_abandons_pending',
+        },
+        sessionId,
+      );
+
       const result = await cancelTrackingSession(sessionId);
       if (__DEV__) {
         console.log('[tracking-cancel-ok]', {
@@ -622,7 +712,8 @@ export function useOperatorTrackingSession() {
       }
       recordTrackingDiagnostic('tracking-cancel', { status: result.session.status }, sessionId);
       await setSessionEndReason('user');
-      await finalizeCaptureLocally();
+      // clear siempre: descartar pending de captura abandonada.
+      await finalizeCaptureLocally('always');
       setSuccessMessage('Captura cancelada');
       return true;
     } catch (e) {
@@ -633,10 +724,11 @@ export function useOperatorTrackingSession() {
       }
       return false;
     } finally {
+      endOperatorSessionFinalization();
       setBusy(false);
       setClosingAction(null);
     }
-  }, [finalizeCaptureLocally, flushBuffer]);
+  }, [finalizeCaptureLocally, stopOperatorBackground, stopWatch]);
 
   return {
     isActive,

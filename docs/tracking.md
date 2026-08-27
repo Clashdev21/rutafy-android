@@ -431,15 +431,59 @@ Registra en DEV/diagnóstico:
 
 - Eventos task recibidos
 - Batches OK / error
-- Drops (`no_session`, `empty_points`, `in_flight`)
+- Drops (`no_session`, `empty_points`) y diferidos (`deferred_in_flight` — puntos conservados en cola)
 
 Panel UI: `OperatorTrackingHealthPanel` en pantalla captura.
 
 Se limpia al iniciar nueva sesión (`operatorTrackingHealthStorage.clear()`).
 
-### 8.3 Tokens auth (referencia)
+### 8.3 Cola pending background (captura logística)
 
-La task background lee JWT desde `tokenStorage` — no almacena puntos GPS en disco de forma duradera; solo buffer en memoria (`bufferRef`) en foreground.
+**Archivos:**
+
+- `src/storage/operatorTrackingPendingQueue.ts` — persistencia AsyncStorage
+- `src/utils/operatorTrackingPendingQueueLogic.ts` — merge / dedupe / orden
+
+**Clave:** `rutafy_operator_tracking_pending_points`
+
+Si un batch HTTP está en vuelo (`batchInFlight`), los nuevos fixes **no se descartan**: se encolan conservando `captured_at` y orden temporal. Máximo un POST concurrente; al terminar el request se drena la cola. Tras error de red, los puntos vuelven al frente y el reintento espera el próximo callback (sin loop agresivo).
+
+**Serialización AsyncStorage:** `enqueue` / `dequeueBatch` / `requeueFront` / `clear` / lecturas consistentes pasan por una `mutationChain` (Promise chain). Distinto de `batchInFlight` (HTTP).
+
+**Cierre END:** detener capturas → drenar FG → esperar POST in-flight (acotado, 25s) → drenar cola BG → solo entonces `endTrackingSession` → clear si vacía. Si timeout/red: **no** end remoto, **no** clear silencioso; pending se preserva.
+
+**CANCEL:** abandono (`abandoned`) — pending se descarta de forma explícita (diagnóstico `cancel_abandons_pending`), sin priorizar drain.
+
+**KNOWN RISK — AT-LEAST-ONCE DELIVERY:** si el backend inserta el batch y la respuesta se pierde, Android puede requeue y reenviar → duplicados en DB. Sin UNIQUE/idempotency en backend. No se “arregla” con hacks locales que arriesguen pérdida; sprint futuro de idempotencia.
+
+Se limpia al iniciar/cerrar sesión (END exitoso / CANCEL / sesión muerta). En END fallido la cola se conserva.
+
+### 8.4 Tokens auth (referencia)
+
+La task background lee JWT desde `tokenStorage`. Foreground usa buffer en memoria (`bufferRef`); background usa la cola durable anterior.
+
+---
+
+### 8.5 Semántica del pipeline diagnóstico (session-scoped)
+
+| Contador | Significado |
+|----------|-------------|
+| `locationCallbacks` | Invocaciones del callback GPS (FG watch o BG TaskManager) |
+| `locationFixesReceived` | Fixes recibidos (incluye rechazos temporales contados aparte) |
+| `locationFixesValid` | Fixes que produjeron `point-mapped` |
+| `pointsMapped` | Puntos mapeados a `TrackingPointInput` |
+| `pointsBuffered` | **Solo foreground** — push al buffer en memoria |
+| `pointsQueuedBackground` | **Solo background** — encolados en cola durable |
+| `pointsDequeued` | Puntos incluidos en `batch-created` |
+| `pointsSendAttempted` | Puntos en `batch-send` |
+| `pointsAcceptedByApi` | Suma de `accepted` en `batch-accepted` |
+| `batchesCreated` / `batchesSendAttempts` | Batches armados / enviados |
+| `batchesAccepted` | Solo `batch-accepted` (HTTP OK semántico). `batch-success` no incrementa |
+| `batchesFailed` | Errores / timeout / 4xx-5xx de batch |
+
+**Latencia batch (background):** `authLatencyMs`, `apiLatencyMs`, `totalLatencyMs` (y `latencyMs` = total por compatibilidad).
+
+**Observabilidad de gaps (sin cambiar sampling):** `multiLocationCallbacks`, `maxLocationsPerCallback`, `maxIntraCallbackCapturedAtSpanMs`, `callbacksWhileBatchInFlight`, `pointsDeferredWhileInFlight`, `maxPendingQueueDepth`.
 
 ---
 
@@ -497,6 +541,8 @@ src/services/
 
 src/storage/
   trackingSessionStorage.ts
+  operatorTrackingHealthStorage.ts
+  operatorTrackingPendingQueue.ts
   operatorTrackingHealthStorage.ts
 
 src/utils/

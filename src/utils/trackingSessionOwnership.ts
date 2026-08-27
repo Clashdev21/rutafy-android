@@ -12,6 +12,7 @@ import {
   recordTrackingDiagnostic,
   setSessionEndReason,
 } from '@/services/trackingDiagnostics';
+import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { AuthUser } from '@/types/auth';
 import type { StoredTrackingSession, TrackingSession } from '@/types/tracking';
@@ -78,13 +79,27 @@ function mapCleanupToEndReason(reason: string): TrackingSessionEndReason {
   return 'cleanup';
 }
 
-export async function cleanupLocalTrackingSession(reason: string): Promise<void> {
+export async function cleanupLocalTrackingSession(
+  reason: string,
+  options?: {
+    /**
+     * - always: borra cola (CANCEL, sesión muerta, start nueva)
+     * - if-empty: solo si depth 0 (END exitoso)
+     * - never: preserva pending (END timeout / fallo de drain)
+     */
+    pendingQueuePolicy?: 'always' | 'if-empty' | 'never';
+  },
+): Promise<void> {
   if (__DEV__) {
-    console.log('[tracking-cleanup-local]', { reason });
+    console.log('[tracking-cleanup-local]', { reason, pendingQueuePolicy: options?.pendingQueuePolicy });
   }
   const endReason = mapCleanupToEndReason(reason);
   await setSessionEndReason(endReason);
-  recordTrackingDiagnostic('tracking-cleanup', { reason, endReason });
+  recordTrackingDiagnostic('tracking-cleanup', {
+    reason,
+    endReason,
+    pendingQueuePolicy: options?.pendingQueuePolicy ?? 'always',
+  });
   await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
   await endSessionMotionStateStatistics();
@@ -93,6 +108,33 @@ export async function cleanupLocalTrackingSession(reason: string): Promise<void>
   resetMotionStateObserver();
   resetTrackingPipelinePreviousFix();
   await stopOperatorTrackingAsync();
+
+  const active = await trackingSessionStorage.getActive();
+  const sessionId = active?.sessionId;
+  const policy = options?.pendingQueuePolicy ?? 'always';
+
+  if (policy === 'always') {
+    await operatorTrackingPendingQueue.clear(sessionId);
+  } else if (policy === 'if-empty' && sessionId) {
+    const depth = await operatorTrackingPendingQueue.depth(sessionId);
+    if (depth === 0) {
+      await operatorTrackingPendingQueue.clear(sessionId);
+    } else {
+      recordTrackingDiagnostic(
+        'finalization-pending-points',
+        { preserved: true, pendingRemaining: depth, reason: 'cleanup_skipped_clear' },
+        sessionId,
+      );
+    }
+  } else if (policy === 'never' && sessionId) {
+    const depth = await operatorTrackingPendingQueue.depth(sessionId);
+    recordTrackingDiagnostic(
+      'finalization-pending-points',
+      { preserved: true, pendingRemaining: depth, reason: 'cleanup_preserve' },
+      sessionId,
+    );
+  }
+
   await trackingSessionStorage.clearActive();
 }
 

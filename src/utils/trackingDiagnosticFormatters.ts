@@ -75,6 +75,30 @@ export function formatDiagnosticEventForOps(
         severity: 'normal',
       };
 
+    case 'point-queued-background':
+      return {
+        time,
+        title: 'POINT QUEUED BG',
+        lines: [
+          channel ?? 'Background queue',
+          typeof d.pointCount === 'number' ? `+${d.pointCount}` : null,
+          typeof d.queueDepth === 'number' ? `depth ${d.queueDepth}` : null,
+        ].filter((x): x is string => Boolean(x)),
+        severity: 'normal',
+      };
+
+    case 'tracking-batch-deferred':
+      return {
+        time,
+        title: 'BATCH DEFERRED',
+        lines: [
+          'in_flight — puntos conservados',
+          typeof d.pointCount === 'number' ? `${d.pointCount} punto(s)` : null,
+          channel,
+        ].filter((x): x is string => Boolean(x)),
+        severity: 'warning',
+      };
+
     case 'batch-created':
       return {
         time,
@@ -103,7 +127,17 @@ export function formatDiagnosticEventForOps(
         title: 'BATCH SUCCESS',
         lines: [
           typeof d.pointCount === 'number' ? `${d.pointCount} punto(s)` : 'Batch OK',
-          typeof d.latencyMs === 'number' ? `latency ${d.latencyMs} ms` : null,
+          typeof d.apiLatencyMs === 'number'
+            ? `api ${d.apiLatencyMs} ms`
+            : typeof d.latencyMs === 'number'
+              ? `latency ${d.latencyMs} ms`
+              : null,
+          typeof d.authLatencyMs === 'number' ? `auth ${d.authLatencyMs} ms` : null,
+          typeof d.totalLatencyMs === 'number' &&
+          typeof d.apiLatencyMs === 'number' &&
+          d.totalLatencyMs !== d.apiLatencyMs
+            ? `total ${d.totalLatencyMs} ms`
+            : null,
           channel,
         ].filter((x): x is string => Boolean(x)),
         severity: 'normal',
@@ -115,7 +149,11 @@ export function formatDiagnosticEventForOps(
         title: 'BATCH ACCEPTED',
         lines: [
           typeof d.accepted === 'number' ? `${d.accepted} aceptado(s)` : null,
-          typeof d.latencyMs === 'number' ? `latency ${d.latencyMs} ms` : null,
+          typeof d.apiLatencyMs === 'number'
+            ? `api ${d.apiLatencyMs} ms`
+            : typeof d.latencyMs === 'number'
+              ? `latency ${d.latencyMs} ms`
+              : null,
         ].filter((x): x is string => Boolean(x)),
         severity: 'normal',
       };

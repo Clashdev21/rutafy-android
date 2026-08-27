@@ -209,6 +209,8 @@ function applyEventToStats(
       next.batchesSent += 1;
       break;
     case 'batch-success':
+      // Éxito HTTP técnico; batchesAccepted solo en batch-accepted.
+      break;
     case 'batch-accepted':
       next.batchesAccepted += 1;
       break;
@@ -271,6 +273,7 @@ function applyEventToSnapshot(
       next.lastBatchSentAt = timestamp;
       break;
     case 'batch-success':
+      break;
     case 'batch-accepted':
       next.lastBatchAcceptedAt = timestamp;
       next.lastHeartbeatAt = timestamp;

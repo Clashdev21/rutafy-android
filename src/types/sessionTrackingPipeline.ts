@@ -16,7 +16,13 @@ export type SessionTrackingPipelineStatistics = {
   locationFixesInvalid: number;
 
   pointsMapped: number;
+  /** Solo canal foreground (buffer en memoria del hook). */
   pointsBuffered: number;
+  /**
+   * Canal background: puntos encolados en cola durable antes del POST.
+   * No equivale a pointsBuffered (pipelines distintos).
+   */
+  pointsQueuedBackground: number;
   pointsDequeued: number;
 
   batchesCreated: number;
@@ -57,9 +63,11 @@ export type SessionTrackingPipelineStatistics = {
   lastValidFixAt: string | null;
   lastPointMappedAt: string | null;
   lastPointBufferedAt: string | null;
+  lastPointQueuedBackgroundAt: string | null;
   lastBatchCreatedAt: string | null;
   lastBatchSendAttemptAt: string | null;
   lastBatchAcceptedAt: string | null;
+  lastBatchSuccessAt: string | null;
   lastTaskStartRequestAt: string | null;
   lastTaskStartObservedAt: string | null;
   lastTaskStopRequestAt: string | null;
@@ -70,6 +78,17 @@ export type SessionTrackingPipelineStatistics = {
   maxLocationCallbackGapMs: number | null;
   maxValidFixGapMs: number | null;
   maxAcceptedBatchGapMs: number | null;
+
+  /** Callbacks con locationCount > 1 (Android acumuló fixes). */
+  multiLocationCallbacks: number;
+  maxLocationsPerCallback: number | null;
+  /** Span de captured_at entre el fix más antiguo y el más reciente del mismo callback. */
+  maxIntraCallbackCapturedAtSpanMs: number | null;
+
+  /** Task recibió locations mientras un batch HTTP estaba en vuelo (puntos encolados, no descartados). */
+  callbacksWhileBatchInFlight: number;
+  pointsDeferredWhileInFlight: number;
+  maxPendingQueueDepth: number | null;
 };
 
 export type SessionTrackingGapStatistics = {
@@ -166,6 +185,7 @@ export function createEmptySessionTrackingPipelineStatistics(
     locationFixesInvalid: 0,
     pointsMapped: 0,
     pointsBuffered: 0,
+    pointsQueuedBackground: 0,
     pointsDequeued: 0,
     batchesCreated: 0,
     batchesSendAttempts: 0,
@@ -197,9 +217,11 @@ export function createEmptySessionTrackingPipelineStatistics(
     lastValidFixAt: null,
     lastPointMappedAt: null,
     lastPointBufferedAt: null,
+    lastPointQueuedBackgroundAt: null,
     lastBatchCreatedAt: null,
     lastBatchSendAttemptAt: null,
     lastBatchAcceptedAt: null,
+    lastBatchSuccessAt: null,
     lastTaskStartRequestAt: null,
     lastTaskStartObservedAt: null,
     lastTaskStopRequestAt: null,
@@ -209,5 +231,11 @@ export function createEmptySessionTrackingPipelineStatistics(
     maxLocationCallbackGapMs: null,
     maxValidFixGapMs: null,
     maxAcceptedBatchGapMs: null,
+    multiLocationCallbacks: 0,
+    maxLocationsPerCallback: null,
+    maxIntraCallbackCapturedAtSpanMs: null,
+    callbacksWhileBatchInFlight: 0,
+    pointsDeferredWhileInFlight: 0,
+    maxPendingQueueDepth: null,
   };
 }

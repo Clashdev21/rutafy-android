@@ -110,7 +110,7 @@ export function toTrackingPoint(
       ? (location as LocationLike).mocked
       : null;
 
-  recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point));
+  recordTrackingDiagnostic('point-mapped', gpsDetailFromPoint(point), sessionId ?? undefined);
   observeTrackingPipelineFromPoint(point, trackingSessionStorage.getActiveSessionIdSync());
   const telemetry = observeSpeedTelemetryFromPoint(point, undefined, {
     fixAgeMs,

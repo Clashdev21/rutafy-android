@@ -204,11 +204,36 @@ export function applyPipelineEventToSession(
       : 0;
 
   switch (type) {
-    case 'tracking-location-callback':
+    case 'tracking-location-callback': {
       next = updateTimestampGap(next, 'maxLocationCallbackGapMs', next.lastLocationCallbackAt, timestamp);
       next.locationCallbacks += 1;
       next.lastLocationCallbackAt = timestamp;
+      const locationCount =
+        typeof detail?.locationCount === 'number' && Number.isFinite(detail.locationCount)
+          ? detail.locationCount
+          : 0;
+      if (locationCount > 1) {
+        next.multiLocationCallbacks += 1;
+        next.maxLocationsPerCallback = bumpMaxGap(
+          next.maxLocationsPerCallback,
+          locationCount,
+        );
+      } else if (locationCount === 1) {
+        next.maxLocationsPerCallback = bumpMaxGap(next.maxLocationsPerCallback, 1);
+      }
+      const intraSpan =
+        typeof detail?.intraCallbackCapturedAtSpanMs === 'number' &&
+        Number.isFinite(detail.intraCallbackCapturedAtSpanMs)
+          ? detail.intraCallbackCapturedAtSpanMs
+          : null;
+      if (intraSpan != null) {
+        next.maxIntraCallbackCapturedAtSpanMs = bumpMaxGap(
+          next.maxIntraCallbackCapturedAtSpanMs,
+          intraSpan,
+        );
+      }
       break;
+    }
     case 'gps-fix-received':
       next.locationFixesReceived += 1;
       next.lastFixReceivedAt = timestamp;
@@ -248,6 +273,24 @@ export function applyPipelineEventToSession(
       next.pointsBuffered += 1;
       next.lastPointBufferedAt = timestamp;
       break;
+    case 'point-queued-background': {
+      const queued = pointCount > 0 ? pointCount : 1;
+      next.pointsQueuedBackground += queued;
+      next.lastPointQueuedBackgroundAt = timestamp;
+      const queueDepth =
+        typeof detail?.queueDepth === 'number' && Number.isFinite(detail.queueDepth)
+          ? detail.queueDepth
+          : null;
+      if (queueDepth != null) {
+        next.maxPendingQueueDepth = bumpMaxGap(next.maxPendingQueueDepth, queueDepth);
+      }
+      break;
+    }
+    case 'tracking-batch-deferred': {
+      next.callbacksWhileBatchInFlight += 1;
+      if (pointCount > 0) next.pointsDeferredWhileInFlight += pointCount;
+      break;
+    }
     case 'batch-created':
       next.batchesCreated += 1;
       if (pointCount > 0) next.pointsDequeued += pointCount;
@@ -259,7 +302,11 @@ export function applyPipelineEventToSession(
       next.lastBatchSendAttemptAt = timestamp;
       break;
     case 'batch-success':
+      // HTTP técnico OK — no incrementa batchesAccepted (evita doble conteo con batch-accepted).
+      next.lastBatchSuccessAt = timestamp;
+      break;
     case 'batch-accepted':
+      // Confirmación semántica: un batch aceptado + puntos accepted del backend.
       next = updateTimestampGap(next, 'maxAcceptedBatchGapMs', next.lastBatchAcceptedAt, timestamp);
       next.batchesAccepted += 1;
       if (accepted > 0) next.pointsAcceptedByApi += accepted;
@@ -318,6 +365,10 @@ export function applyPipelineEventToSession(
       next.lastBackgroundAt = timestamp;
       break;
     case 'tracking-pipeline-session-start':
+    case 'finalization-drain-start':
+    case 'finalization-drain-success':
+    case 'finalization-drain-timeout':
+    case 'finalization-pending-points':
       break;
     default:
       return null;
