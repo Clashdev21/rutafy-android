@@ -13,6 +13,9 @@ const appJson = require('./app.json');
 
 const googleMapsKey = process.env.GOOGLE_MAPS_ANDROID_API_KEY?.trim() ?? '';
 
+const googleServicesFile =
+  process.env.GOOGLE_SERVICES_JSON?.trim() || './google-services.json';
+
 const plugins = [...(appJson.expo.plugins ?? [])];
 
 if (googleMapsKey) {
@@ -28,5 +31,9 @@ if (googleMapsKey) {
 
 module.exports = {
   ...appJson.expo,
+  android: {
+    ...appJson.expo.android,
+    googleServicesFile,
+  },
   plugins,
 };
