@@ -15,6 +15,11 @@ import {
 import type { Service } from '@/types/service';
 import { getApiErrorMessage } from '@/utils/errors';
 import { isValidUuid } from '@/utils/isValidUuid';
+import { recoverAfterCloseSuccess } from '@/utils/mensajeroCloseRecovery';
+import {
+  canHydrateMyServices,
+  deriveMensajeroOperationalUiState,
+} from '@/utils/mensajeroOperationalState';
 import { reorderOffersForIntent } from '@/utils/reorderOffersForIntent';
 import {
   isMensajeroOperationalActive,
@@ -65,8 +70,10 @@ export function useMensajeroOperations(
   const [error, setError] = useState<string | null>(null);
   const [pushOfferActive, setPushOfferActive] = useState(false);
   const [pushOfferNotice, setPushOfferNotice] = useState<string | null>(null);
+  const [availabilityWarning, setAvailabilityWarning] = useState<string | null>(null);
 
   const refreshMyInFlightRef = useRef(false);
+  const didInitialHydrateRef = useRef(false);
   const refreshOffersInFlightRef = useRef(false);
   const pushIntentInFlightRef = useRef(false);
 
@@ -101,14 +108,14 @@ export function useMensajeroOperations(
   const canOperate = Boolean(effectiveActorId && isValidUuid(effectiveActorId));
 
   const refreshMyServices = useCallback(async (silent = false) => {
-    if (!canOperate || !effectiveActorId) return;
+    if (!canHydrateMyServices({ canOperate, actorId: effectiveActorId })) return;
     if (__DEV__) {
-      console.log('[my-services-refresh-start]', { silent, isOnline });
+      console.log('[my-services-refresh-start]', { silent });
     }
     if (!silent) setLoadingMy(true);
     const startedAt = Date.now();
     try {
-      const list = await mensajeroService.fetchMyServices(effectiveActorId);
+      const list = await mensajeroService.fetchMyServices(effectiveActorId as string);
       setMyServices(list);
       setError(null);
     } catch (e) {
@@ -119,19 +126,28 @@ export function useMensajeroOperations(
         console.log('[my-services-refresh-end]', { silent, durationMs: Date.now() - startedAt });
       }
     }
-  }, [effectiveActorId, canOperate, isOnline]);
+  }, [effectiveActorId, canOperate]);
 
   const effectiveIsOnline = isOnline || hasActiveOperational;
   const firstOffer = availableServices[0] ?? null;
 
-  const uiState = useMemo(() => {
-    if (activeService?.status === 'STARTED') return 'IN_SERVICE' as const;
-    if (activeService?.status === 'CLAIMED') return 'ASSIGNED' as const;
-    if ((effectiveIsOnline || pushOfferActive) && firstOffer) return 'OFFER' as const;
-    if (!effectiveIsOnline) return 'OFFLINE' as const;
-    if (firstOffer) return 'OFFER' as const;
-    return 'AVAILABLE' as const;
-  }, [effectiveIsOnline, activeService, firstOffer, pushOfferActive]);
+  const uiState = useMemo(
+    () =>
+      deriveMensajeroOperationalUiState({
+        activeServiceStatus: activeService?.status,
+        isOnline,
+        hasFirstOffer: Boolean(firstOffer),
+        pushOfferActive,
+      }),
+    [activeService?.status, isOnline, firstOffer, pushOfferActive],
+  );
+
+  useEffect(() => {
+    if (!canHydrateMyServices({ canOperate, actorId: effectiveActorId })) return;
+    const silent = didInitialHydrateRef.current;
+    didInitialHydrateRef.current = true;
+    void refreshMyServices(silent);
+  }, [canOperate, effectiveActorId, refreshMyServices]);
 
   const pollConfig = useMemo(() => getMensajeroPollConfig(uiState), [uiState]);
 
@@ -325,21 +341,6 @@ export function useMensajeroOperations(
     [effectiveActorId, canOperate, offerIdByServiceId, refreshMyServices, refreshOffers],
   );
 
-  const omitFirstOffer = useCallback(() => {
-    setPushOfferActive(false);
-    setPushOfferNotice(null);
-    setAvailableServices((prev) => {
-      if (prev.length === 0) return prev;
-      const omittedId = prev[0].service_id;
-      setOfferIdByServiceId((m) => {
-        const next = { ...m };
-        delete next[omittedId];
-        return next;
-      });
-      return prev.filter((s) => s.service_id !== omittedId);
-    });
-  }, []);
-
   const locationHeartbeat = useMessengerLocationHeartbeat({
     enabled: canOperate && effectiveAppRole === 'MENSAJERO',
     isOnline: effectiveIsOnline,
@@ -384,18 +385,38 @@ export function useMensajeroOperations(
   const handleCloseSuccess = useCallback(async () => {
     if (!effectiveActorId || !canOperate) return;
 
+    const closedServiceId = activeService?.service_id;
+    if (closedServiceId) {
+      setMyServices((prev) =>
+        prev.map((service) =>
+          service.service_id === closedServiceId
+            ? { ...service, status: 'CLOSED' }
+            : service,
+        ),
+      );
+    }
+
     setAvailabilitySyncing(true);
     try {
-      await mensajeroService.patchAvailability(effectiveActorId, 'AVAILABLE');
-      setIsOnline(true);
-      setError(null);
-      await refreshAll({ silent: false, forceOnline: true, source: 'closeSuccess' });
-    } catch (e) {
-      setError(getApiErrorMessage(e, 'No se pudo restaurar la disponibilidad'));
+      const result = await recoverAfterCloseSuccess({
+        patchAvailabilityAvailable: async () => {
+          await mensajeroService.patchAvailability(effectiveActorId, 'AVAILABLE');
+        },
+        refreshMyServices: () => refreshMyServices(false),
+      });
+
+      if (result.availabilityOk) {
+        setIsOnline(true);
+        setAvailabilityWarning(null);
+        setError(null);
+        await refreshOffers({ silent: false, forceOnline: true, source: 'closeSuccess' });
+      } else {
+        setAvailabilityWarning(result.availabilityWarning);
+      }
     } finally {
       setAvailabilitySyncing(false);
     }
-  }, [effectiveActorId, canOperate, refreshAll]);
+  }, [effectiveActorId, canOperate, activeService?.service_id, refreshMyServices, refreshOffers]);
 
   const getServiceById = useCallback(
     (id: string) => myServices.find((s) => s.service_id === id) ?? null,
@@ -458,13 +479,13 @@ export function useMensajeroOperations(
     claimingServiceId,
     error,
     pushOfferNotice,
+    availabilityWarning,
     canOperate,
     gpsStatus: locationHeartbeat.gpsStatus,
     hasLocationFix: locationHeartbeat.hasLocationFix,
     lastKnownPosition: locationHeartbeat.lastKnownPosition,
     toggleAvailability,
     acceptOffer,
-    omitFirstOffer,
     handleCloseSuccess,
     refreshAll,
     refreshMyServices,

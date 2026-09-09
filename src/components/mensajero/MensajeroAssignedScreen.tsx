@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 
 import { getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { AppButton, AppText } from '@/components/ui';
@@ -8,6 +8,7 @@ import { spacing } from '@/theme/spacing';
 import * as mensajeroService from '@/services/mensajeroService';
 import type { Service } from '@/types/service';
 import { getApiErrorMessage } from '@/utils/errors';
+import { buildGeoNavigationUri, parseValidGeoCoordinate } from '@/utils/geoNavigation';
 
 type Props = {
   service: Service;
@@ -30,8 +31,11 @@ export function MensajeroAssignedScreen({
   const code = getServiceCode(service);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openingMaps, setOpeningMaps] = useState(false);
 
   const controlsDisabled = disabled || starting || !actorId;
+  const originCoord = parseValidGeoCoordinate(service.origin_lat, service.origin_lng);
+  const canNavigateToOrigin = originCoord != null;
 
   const handleStart = async () => {
     setStarting(true);
@@ -47,10 +51,28 @@ export function MensajeroAssignedScreen({
     }
   };
 
+  const handleHowToArrive = async () => {
+    const coord = parseValidGeoCoordinate(service.origin_lat, service.origin_lng);
+    if (!coord) return;
+    setOpeningMaps(true);
+    setError(null);
+    try {
+      const uri = buildGeoNavigationUri(coord.lat, coord.lng, service.origin);
+      await Linking.openURL(uri);
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'No se pudo abrir la navegación'));
+    } finally {
+      setOpeningMaps(false);
+    }
+  };
+
   return (
     <View style={styles.panel}>
       <AppText variant="heading">Servicio asignado</AppText>
       <AppText variant="caption">{code}</AppText>
+      <AppText variant="body">
+        Dirígete al punto de recogida. Cuando tengas el documento, inicia el servicio.
+      </AppText>
 
       <View style={styles.routeBlock}>
         <AppText variant="overline">RECOGER EN</AppText>
@@ -72,6 +94,16 @@ export function MensajeroAssignedScreen({
         <AppText variant="caption" color={colors.danger}>
           {error}
         </AppText>
+      ) : null}
+
+      {canNavigateToOrigin ? (
+        <AppButton
+          label={openingMaps ? 'Abriendo…' : 'Cómo llegar'}
+          variant="secondary"
+          onPress={() => void handleHowToArrive()}
+          disabled={controlsDisabled || openingMaps}
+          loading={openingMaps}
+        />
       ) : null}
 
       <AppButton

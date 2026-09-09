@@ -58,6 +58,7 @@ export async function patchAvailability(
   messengerId: string,
   availability_status: 'AVAILABLE' | 'OFFLINE',
 ) {
+  // Catálogo actual: solo PATCH. No hay GET de availability en Android.
   const { data } = await apiClient.patch(
     MESSENGER_ENDPOINTS.availability(messengerId),
     { availability_status },

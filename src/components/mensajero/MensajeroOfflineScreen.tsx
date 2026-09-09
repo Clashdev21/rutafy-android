@@ -7,20 +7,25 @@ import { Spacing } from '@/constants/theme';
 type Props = {
   onToggleOnline: () => void;
   loading?: boolean;
+  syncing?: boolean;
   disabled?: boolean;
 };
 
 /** Contenido del panel inferior OFFLINE (MAP 1A). El mapa vive en MensajeroInicioView. */
-export function MensajeroOfflineScreen({ onToggleOnline, loading, disabled }: Props) {
+export function MensajeroOfflineScreen({ onToggleOnline, loading, syncing, disabled }: Props) {
   return (
     <View style={styles.panel}>
-      <Text style={styles.title}>Desconectado</Text>
-      <Text style={styles.subtitle}>Activa tu disponibilidad para recibir servicios.</Text>
+      <Text style={styles.title}>{syncing ? 'Sincronizando' : 'Desconectado'}</Text>
+      <Text style={styles.subtitle}>
+        {syncing
+          ? 'Recuperando el estado de tus servicios…'
+          : 'Activa tu disponibilidad para recibir servicios.'}
+      </Text>
       <RutafyButton
         label="Ponerte en línea"
         onPress={onToggleOnline}
         loading={loading}
-        disabled={disabled}
+        disabled={disabled || syncing}
       />
     </View>
   );

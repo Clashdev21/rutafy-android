@@ -9,7 +9,7 @@ import {
   type ReactElement,
 } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { AppText } from '@/components/ui';
 import { colors } from '@/theme/colors';
@@ -19,10 +19,10 @@ import {
   type MapCoordinate,
   type OperationalMapMode,
 } from '@/types/map';
-
-/** Zoom urbano aproximado (~1.1 km de alto visible). */
-const URBAN_LAT_DELTA = 0.012;
-const URBAN_LNG_DELTA = 0.012;
+import {
+  regionAround,
+  resolveOperationalMapRegion,
+} from '@/utils/operationalMapRegion';
 
 export type MensajeroOperationalMapHandle = {
   recenter: () => void;
@@ -35,15 +35,6 @@ type Props = {
   mode?: OperationalMapMode;
   mapPaddingBottom?: number;
 };
-
-function regionAround(coord: MapCoordinate): Region {
-  return {
-    latitude: coord.latitude,
-    longitude: coord.longitude,
-    latitudeDelta: URBAN_LAT_DELTA,
-    longitudeDelta: URBAN_LNG_DELTA,
-  };
-}
 
 function MensajeroOperationalMapInner(
   {
@@ -60,6 +51,16 @@ function MensajeroOperationalMapInner(
   const hasMessenger = isValidMapCoordinate(messengerPosition);
   const hasOrigin = isValidMapCoordinate(origin);
   const hasDestination = isValidMapCoordinate(destination);
+
+  const initialRegion = useMemo(
+    () =>
+      resolveOperationalMapRegion({
+        messenger: messengerPosition,
+        origin,
+        destination,
+      }),
+    [messengerPosition, origin, destination],
+  );
 
   const messengerCoord = useMemo(
     () =>
@@ -100,6 +101,7 @@ function MensajeroOperationalMapInner(
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         provider={PROVIDER_GOOGLE}
+        initialRegion={initialRegion}
         showsUserLocation={false}
         showsMyLocationButton={false}
         showsCompass={false}

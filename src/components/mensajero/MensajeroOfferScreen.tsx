@@ -9,7 +9,6 @@ import type { Service } from '@/types/service';
 type Props = {
   offer: Service;
   onAccept: () => void;
-  onOmit: () => void;
   isAccepting?: boolean;
   disabled?: boolean;
 };
@@ -25,11 +24,10 @@ function MetaLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Panel OFFER sobre mapa (MAP 1A). */
+/** Panel OFFER sobre mapa (MAP 1A). Sin CTA Rechazar: no hay endpoint contractual. */
 export function MensajeroOfferScreen({
   offer,
   onAccept,
-  onOmit,
   isAccepting,
   disabled,
 }: Props) {
@@ -57,22 +55,12 @@ export function MensajeroOfferScreen({
       {routeMeta ? <Text style={styles.routeMeta}>{routeMeta}</Text> : null}
 
       <View style={styles.actions}>
-        <View style={styles.actionFlex}>
-          <RutafyButton
-            label={isAccepting ? 'Aceptando…' : 'Aceptar'}
-            onPress={onAccept}
-            loading={isAccepting}
-            disabled={disabled || isAccepting}
-          />
-        </View>
-        <View style={styles.actionFlex}>
-          <RutafyButton
-            label="Rechazar"
-            variant="secondary"
-            onPress={onOmit}
-            disabled={disabled || isAccepting}
-          />
-        </View>
+        <RutafyButton
+          label={isAccepting ? 'Aceptando…' : 'Aceptar'}
+          onPress={onAccept}
+          loading={isAccepting}
+          disabled={disabled || isAccepting}
+        />
       </View>
     </View>
   );
@@ -116,11 +104,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   actions: {
-    flexDirection: 'row',
-    gap: Spacing.two,
     marginTop: Spacing.one,
-  },
-  actionFlex: {
-    flex: 1,
   },
 });

@@ -221,7 +221,7 @@ export function MensajeroInServiceScreen({
         </View>
         <Text style={styles.headerTitle}>Servicio en curso</Text>
         <Text style={styles.headerSubtitle}>
-          Evidencia opcional y PIN del transportista para finalizar
+          El documento ya está en tránsito. Dirígete al punto de entrega.
         </Text>
         <Text
           style={[

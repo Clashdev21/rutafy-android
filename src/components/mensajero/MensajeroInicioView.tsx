@@ -37,15 +37,16 @@ export function MensajeroInicioView() {
     uiState,
     claimingServiceId,
     availabilitySyncing,
+    loadingMy,
     error,
     pushOfferNotice,
+    availabilityWarning,
     canOperate,
     gpsStatus,
     hasLocationFix,
     lastKnownPosition,
     toggleAvailability,
     acceptOffer,
-    omitFirstOffer,
     handleCloseSuccess,
     refreshAll,
   } = useMensajeroOperationsContext();
@@ -113,6 +114,7 @@ export function MensajeroInicioView() {
 
         {!canOperate ? <Banner message="La sesión no tiene actor_id válido para operar." /> : null}
         {pushOfferNotice ? <Banner message={pushOfferNotice} variant="warn" /> : null}
+        {availabilityWarning ? <Banner message={availabilityWarning} variant="warn" /> : null}
         {error ? <Banner message={error} variant="error" /> : null}
       </SafeAreaView>
 
@@ -134,7 +136,8 @@ export function MensajeroInicioView() {
           {uiState === 'OFFLINE' ? (
             <MensajeroOfflineScreen
               onToggleOnline={() => void toggleAvailability()}
-              loading={availabilitySyncing}
+              loading={availabilitySyncing || loadingMy}
+              syncing={loadingMy}
               disabled={controlsDisabled}
             />
           ) : null}
@@ -153,7 +156,6 @@ export function MensajeroInicioView() {
             <MensajeroOfferScreen
               offer={firstOffer}
               onAccept={() => void acceptOffer(firstOffer.service_id)}
-              onOmit={omitFirstOffer}
               isAccepting={claimingServiceId === firstOffer.service_id}
               disabled={!canOperate}
             />
