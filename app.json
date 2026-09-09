@@ -59,9 +59,9 @@
       [
         "expo-image-picker",
         {
-          photosPermission": "Rutafy usa tus fotos para evidencias opcionales de entrega.",
-          cameraPermission": "Rutafy usa la cámara para evidencias opcionales de entrega.",
-          microphonePermission: false
+          "photosPermission": "Rutafy usa tus fotos para evidencias opcionales de entrega.",
+          "cameraPermission": "Rutafy usa la cámara para evidencias opcionales de entrega.",
+          "microphonePermission": false
         }
       ],
       [
