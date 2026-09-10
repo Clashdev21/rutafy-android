@@ -403,11 +403,13 @@ export function useMensajeroOperations(
           await mensajeroService.patchAvailability(effectiveActorId, 'AVAILABLE');
         },
         refreshMyServices: () => refreshMyServices(false),
+        restoreLocalOnline: () => {
+          setIsOnline(true);
+          setAvailabilityWarning(null);
+        },
       });
 
       if (result.availabilityOk) {
-        setIsOnline(true);
-        setAvailabilityWarning(null);
         setError(null);
         await refreshOffers({ silent: false, forceOnline: true, source: 'closeSuccess' });
       } else {

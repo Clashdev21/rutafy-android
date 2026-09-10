@@ -11,6 +11,7 @@ import { RutafyColors } from '@/constants/rutafyTheme';
 import { useTransportistaServiceCancel } from '@/hooks/useTransportistaServiceCancel';
 import { useTransportistaServicesContext } from '@/contexts/TransportistaServicesContext';
 import { shouldShowTransportistaCancelButton } from '@/utils/transportistaCancelAction';
+import { formatServiceTypeLabel } from '@/components/mensajero/serviceDisplay';
 import { isStale, minutesAgo } from '@/utils/gpsFreshness';
 import { getStatusLabel } from '@/utils/serviceStatus';
 
@@ -52,7 +53,7 @@ export default function TransportistaDetalleScreen() {
         </View>
 
         <DetailRow label="Estado" value={getStatusLabel(service.status)} />
-        <DetailRow label="Tipo" value={service.service_type} />
+        <DetailRow label="Tipo" value={formatServiceTypeLabel(service.service_type)} />
         <DetailRow label="Modo" value={service.request_mode} />
         <DetailRow label="Origen" value={service.origin} />
         <DetailRow label="Destino" value={service.destination} />

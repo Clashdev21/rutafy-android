@@ -5,22 +5,29 @@ export type CloseRecoveryResult = {
   availabilityOk: boolean;
   availabilityWarning: string | null;
   didRefreshMyServices: boolean;
+  didRestoreLocalOnline: boolean;
 };
 
 /**
- * Tras close 2xx, CLOSED es autoridad. refreshMyServices corre siempre,
- * incluso si PATCH availability falla. Ese fallo no puede dejar IN_SERVICE.
+ * Tras close 2xx, CLOSED es autoridad.
+ * Si PATCH AVAILABLE responde 2xx, restaurar isOnline local ANTES de refresh,
+ * para no pintar OFFLINE con el backend ya AVAILABLE.
+ * Si PATCH falla, no forzar isOnline=true. refreshMyServices corre siempre.
  */
 export async function recoverAfterCloseSuccess(params: {
   patchAvailabilityAvailable: () => Promise<void>;
   refreshMyServices: () => Promise<void>;
+  restoreLocalOnline: () => void;
 }): Promise<CloseRecoveryResult> {
   let availabilityOk = false;
   let availabilityWarning: string | null = null;
+  let didRestoreLocalOnline = false;
 
   try {
     await params.patchAvailabilityAvailable();
     availabilityOk = true;
+    params.restoreLocalOnline();
+    didRestoreLocalOnline = true;
   } catch {
     availabilityOk = false;
     availabilityWarning = CLOSE_AVAILABILITY_WARNING;
@@ -31,5 +38,6 @@ export async function recoverAfterCloseSuccess(params: {
     availabilityOk,
     availabilityWarning,
     didRefreshMyServices: true,
+    didRestoreLocalOnline,
   };
 }

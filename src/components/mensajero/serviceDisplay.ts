@@ -9,28 +9,37 @@ export function getServiceCode(service: Pick<Service, 'service_id' | 'service_co
 }
 
 /**
- * Etiqueta humana de service_type.
- * Solo mapea valores confirmados; no inventa categorías backend.
+ * Etiquetas de presentación. Códigos = contrato backend
+ * (DOCS_PICKUP, CUMPLIDOS, DOCS_DELIVERY, MOTO_COURIER, MOTO_RIDE; alias DOCS → DOCS_PICKUP).
+ * La API conserva el enum; la UI nunca muestra el código crudo.
  */
+const SERVICE_TYPE_LABELS: Record<string, string> = {
+  DOCS_PICKUP: 'Recogida de documentos',
+  DOCS: 'Recogida de documentos',
+  CUMPLIDOS: 'Recogida de cumplidos',
+  DOCS_DELIVERY: 'Entrega de documentos',
+  MOTO_COURIER: 'Paquetes',
+  MOTO_RIDE: 'Carrera de moto',
+};
+
+const UNKNOWN_SERVICE_TYPE_LABEL = 'Servicio de mensajería';
+
 export function formatServiceTypeLabel(serviceType: string | null | undefined): string {
   const key = String(serviceType ?? '')
     .trim()
     .toUpperCase();
-  if (!key) return 'Servicio';
+  if (!key) return UNKNOWN_SERVICE_TYPE_LABEL;
 
-  const MAP: Record<string, string> = {
-    DOCS: 'Servicio documental',
-  };
+  const label = SERVICE_TYPE_LABELS[key];
+  if (label) return label;
 
-  return MAP[key] ?? humanizeUnknownType(key);
-}
-
-function humanizeUnknownType(key: string): string {
-  if (key.length <= 24 && /^[A-Z0-9_]+$/.test(key)) {
-    return key.replace(/_/g, ' ');
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.warn('[service-type-label] unknown code', key);
   }
-  return key;
+  return UNKNOWN_SERVICE_TYPE_LABEL;
 }
+
+export const getServiceTypeLabel = formatServiceTypeLabel;
 
 /** Tiempo relativo compacto para tarjetas de actividad. */
 export function formatServiceRelativeTime(iso: string | null | undefined): string | null {

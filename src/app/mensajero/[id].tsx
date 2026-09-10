@@ -2,7 +2,7 @@ import { type Href, router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { getServiceCode } from '@/components/mensajero/serviceDisplay';
+import { formatServiceTypeLabel, getServiceCode } from '@/components/mensajero/serviceDisplay';
 import { RutafyButton } from '@/components/rutafy/RutafyButton';
 import { ServiceStatusBadge } from '@/components/services/ServiceStatusBadge';
 import { ThemedText } from '@/components/themed-text';
@@ -64,7 +64,7 @@ export default function MensajeroDetalleScreen() {
         {dispatchStatus ? (
           <DetailRow label="Despacho" value={dispatchStatus} />
         ) : null}
-        <DetailRow label="Tipo" value={service.service_type || '—'} />
+        <DetailRow label="Tipo" value={formatServiceTypeLabel(service.service_type)} />
         <DetailRow label="Recoger en" value={service.origin || '—'} />
         <DetailRow label="Entregar en" value={service.destination || '—'} />
         {service.created_at ? (
