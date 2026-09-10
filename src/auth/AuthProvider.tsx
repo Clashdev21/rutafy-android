@@ -20,7 +20,7 @@ import {
   isTransientServerError,
   NETWORK_UNAVAILABLE_MESSAGE,
 } from '@/utils/networkErrors';
-import { isAdminRole, isMobileSupportedRole } from '@/utils/roles';
+import { isRestorableMobileUser, isMobileSupportedRole } from '@/utils/roles';
 
 type AuthProviderProps = {
   children: ReactNode;
@@ -94,22 +94,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         const me = await authService.fetchCurrentUser();
-        if (!me.actor_id?.trim() || !isMobileSupportedRole(me.appRole)) {
-          throw new Error('Sesión sin actor operativo válido');
-        }
-        if (isAdminRole(me.appRole)) {
-          await authService.logout();
-          setUser(null);
-          setHasPersistedSession(false);
-          setError('Las cuentas de administrador solo están disponibles en la web.');
-          return;
-        }
         if (!isMobileSupportedRole(me.appRole)) {
           await authService.logout();
           setUser(null);
           setHasPersistedSession(false);
           setError('Este tipo de cuenta no está disponible en la app móvil.');
           return;
+        }
+        if (!isRestorableMobileUser(me)) {
+          throw new Error('Sesión sin actor operativo válido');
         }
         setUser(me);
         setError(null);
@@ -176,13 +169,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const finalizeAuthenticatedUser = useCallback(
     async (me: AuthUser, source: PushRegisterSource): Promise<AuthUser> => {
-      if (isAdminRole(me.appRole)) {
-        await authService.logout();
-        setUser(null);
-        setHasPersistedSession(false);
-        setError('Las cuentas de administrador solo están disponibles en la web.');
-        throw new Error('ADMIN_NOT_SUPPORTED');
-      }
       if (!isMobileSupportedRole(me.appRole)) {
         await authService.logout();
         setUser(null);
@@ -190,7 +176,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setError('Este tipo de cuenta no está disponible en la app móvil.');
         throw new Error('ROLE_NOT_SUPPORTED');
       }
-      if (!me.actor_id?.trim()) {
+      if (!isRestorableMobileUser(me)) {
         await authService.logout();
         setUser(null);
         setHasPersistedSession(false);
@@ -214,9 +200,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (e) {
       if (
         e instanceof Error &&
-        (e.message === 'ADMIN_NOT_SUPPORTED' ||
-          e.message === 'ROLE_NOT_SUPPORTED' ||
-          e.message === 'ACTOR_NOT_SUPPORTED')
+        (e.message === 'ROLE_NOT_SUPPORTED' || e.message === 'ACTOR_NOT_SUPPORTED')
       ) {
         throw e;
       }
@@ -240,9 +224,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } catch (e) {
         if (
           e instanceof Error &&
-          (e.message === 'ADMIN_NOT_SUPPORTED' ||
-            e.message === 'ROLE_NOT_SUPPORTED' ||
-            e.message === 'ACTOR_NOT_SUPPORTED')
+          (e.message === 'ROLE_NOT_SUPPORTED' || e.message === 'ACTOR_NOT_SUPPORTED')
         ) {
           throw e;
         }
@@ -277,11 +259,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshCurrentUser = useCallback(async (): Promise<AuthUser> => {
     const me = await authService.fetchCurrentUser();
-    if (!me.actor_id?.trim() || !isMobileSupportedRole(me.appRole)) {
-      throw new Error('Sesión sin actor operativo válido');
+    if (!isMobileSupportedRole(me.appRole)) {
+      throw new Error('ROLE_NOT_SUPPORTED');
     }
-    if (isAdminRole(me.appRole)) {
-      throw new Error('ADMIN_NOT_SUPPORTED');
+    if (!isRestorableMobileUser(me)) {
+      throw new Error('Sesión sin actor operativo válido');
     }
     setUser(me);
     setHasPersistedSession(true);

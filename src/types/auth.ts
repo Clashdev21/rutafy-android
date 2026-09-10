@@ -1,8 +1,8 @@
 /** Roles operativos devueltos por GET /v1/auth/me (mismo contrato que Rutafy Web). */
 export type AppRole = 'ADMIN' | 'TRANSPORTISTA' | 'MENSAJERO';
 
-/** Rutas móviles soportadas en Sprint 1. */
-export type MobileRole = 'transportista' | 'mensajero';
+/** Rutas móviles soportadas (mensajero, transportista, Control Mobile admin). */
+export type MobileRole = 'transportista' | 'mensajero' | 'admin';
 
 export type AuthUser = {
   id: string | number;

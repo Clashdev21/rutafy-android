@@ -48,6 +48,12 @@ export const TRACKING_SESSION_ENDPOINTS = {
     `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/cancel`,
 } as const;
 
+export const ADMIN_CONTROL_ENDPOINTS = {
+  operationalControl: '/v1/admin/operational-control',
+  operationalDigitalTwinContainer: (containerId: string) =>
+    `/v1/admin/operational-digital-twin/containers/${encodeURIComponent(containerId)}`,
+} as const;
+
 export const NOTIFICATION_ENDPOINTS = {
   preferences: '/v1/notifications/preferences',
   registerDevice: '/v1/notifications/devices/register',

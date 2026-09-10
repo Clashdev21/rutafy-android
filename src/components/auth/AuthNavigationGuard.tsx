@@ -20,9 +20,10 @@ export function AuthNavigationGuard() {
     const onTransportista = pathname.startsWith('/transportista');
     const onMensajero = pathname.startsWith('/mensajero');
     const onCapturaLogistica = pathname.startsWith('/captura-logistica');
+    const onControl = pathname.startsWith('/control');
 
     if (!isAuthenticated) {
-      if (onTransportista || onMensajero || onCapturaLogistica) {
+      if (onTransportista || onMensajero || onCapturaLogistica || onControl) {
         router.replace('/welcome' as Href);
       }
       return;
@@ -36,6 +37,14 @@ export function AuthNavigationGuard() {
       return;
     }
 
+    if (onControl && mobileRole !== 'admin') {
+      router.replace(home);
+      return;
+    }
+    if (mobileRole === 'admin' && (onMensajero || onTransportista || onCapturaLogistica)) {
+      router.replace(home);
+      return;
+    }
     if (onTransportista && mobileRole !== 'transportista') {
       router.replace(home);
     }

@@ -18,6 +18,7 @@
     "expo-env.d.ts"
   ],
   "exclude": [
-    "scripts/test-mensajero-operational.ts"
+    "scripts/test-mensajero-operational.ts",
+    "scripts/test-control-mobile.ts"
   ]
 }

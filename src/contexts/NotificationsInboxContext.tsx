@@ -36,6 +36,7 @@ import {
   sortNotificationsDesc,
 } from '@/utils/notificationFormatters';
 import { navigateInboxNotification } from '@/utils/notificationNavigation';
+import { isAdminRole } from '@/utils/roles';
 
 const PAGE_SIZE = 20;
 /** Refresh periódico solo con app en foreground / inbox abierta — nunca 90s */
@@ -103,6 +104,7 @@ type ProviderProps = {
 
 export function NotificationsInboxProvider({ children }: ProviderProps) {
   const { isAuthenticated, user } = useAuth();
+  const inboxEnabled = Boolean(isAuthenticated && user && !isAdminRole(user.appRole));
   const [notifications, setNotifications] = useState<InboxNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -204,7 +206,7 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
   }, [pruneLocalOpenedIds]);
 
   const refreshUnreadCount = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!inboxEnabled) return;
     try {
       const result = await getUnreadCount();
       const unread = Math.max(0, result.unread_count);
@@ -217,11 +219,11 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
         error: getApiErrorMessage(e, 'unread_failed'),
       });
     }
-  }, [isAuthenticated, persistCacheBestEffort]);
+  }, [inboxEnabled, persistCacheBestEffort]);
 
   const loadInbox = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!isAuthenticated) return;
+      if (!inboxEnabled) return;
       if (loadInFlightRef.current) return;
       loadInFlightRef.current = true;
 
@@ -270,11 +272,11 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
         loadInFlightRef.current = false;
       }
     },
-    [isAuthenticated, listFilter, persistCacheBestEffort, selectedCategory],
+    [inboxEnabled, listFilter, persistCacheBestEffort, selectedCategory],
   );
 
   const refreshInbox = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!inboxEnabled) return;
     setRefreshing(true);
     inboxLog('[inbox-refresh]');
     try {
@@ -283,10 +285,10 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
     } finally {
       setRefreshing(false);
     }
-  }, [isAuthenticated, loadInbox, refreshUnreadCount]);
+  }, [inboxEnabled, loadInbox, refreshUnreadCount]);
 
   const loadMore = useCallback(async () => {
-    if (!isAuthenticated || !nextCursor || loadingMore || loading) return;
+    if (!inboxEnabled || !nextCursor || loadingMore || loading) return;
     setLoadingMore(true);
     try {
       const status =
@@ -318,7 +320,7 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
       setLoadingMore(false);
     }
   }, [
-    isAuthenticated,
+    inboxEnabled,
     listFilter,
     loading,
     loadingMore,
@@ -583,6 +585,8 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
       return;
     }
 
+    if (!inboxEnabled) return;
+
     void (async () => {
       const { isExpired } = await hydrateFromCache();
       if (isExpired) {
@@ -592,10 +596,10 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
         void refreshUnreadCount();
       }
     })();
-  }, [hydrateFromCache, isAuthenticated, loadInbox, refreshUnreadCount]);
+  }, [hydrateFromCache, inboxEnabled, isAuthenticated, loadInbox, refreshUnreadCount]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!inboxEnabled) return;
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void refreshUnreadCount();
@@ -603,10 +607,10 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
       }
     });
     return () => sub.remove();
-  }, [isAuthenticated, refreshInbox, refreshUnreadCount]);
+  }, [inboxEnabled, refreshInbox, refreshUnreadCount]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!inboxEnabled) return;
     const id = setInterval(() => {
       if (AppState.currentState !== 'active') return;
       void refreshUnreadCount();
@@ -615,7 +619,7 @@ export function NotificationsInboxProvider({ children }: ProviderProps) {
       }
     }, OPEN_SCREEN_POLL_MS);
     return () => clearInterval(id);
-  }, [inboxScreenVisible, isAuthenticated, refreshInbox, refreshUnreadCount]);
+  }, [inboxEnabled, inboxScreenVisible, refreshInbox, refreshUnreadCount]);
 
   const value = useMemo<NotificationsInboxContextValue>(
     () => ({
