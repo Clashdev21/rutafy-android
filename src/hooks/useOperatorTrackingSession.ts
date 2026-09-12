@@ -31,6 +31,8 @@ import {
 } from '@/services/trackingDiagnostics';
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
+import { operatorCaptureConsentStorage } from '@/storage/operatorCaptureConsentStorage';
+import { mensajeroBootstrapStorage } from '@/storage/mensajeroBootstrapStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type {
   StoredTrackingSession,
@@ -46,6 +48,11 @@ import {
   shouldProceedWithRemoteEnd,
   shouldPreservePendingOnEndFailure,
 } from '@/utils/operatorTrackingFinalization';
+import { buildTrackingStartParams, mensajeroStartSingleFlight } from '@/utils/mensajeroStartFlow';
+import {
+  findExistingActiveTrackingSessionId,
+  runMensajeroHydrateCapture,
+} from '@/utils/mensajeroCaptureLifecycle';
 import {
   buildStoredTrackingSession,
   cleanupLocalTrackingSession,
@@ -53,6 +60,8 @@ import {
   isStoredTrackingSessionOwnedByUser,
   isTrackingSessionForbiddenOrNotFound,
   isTrackingSessionNotActiveError,
+  isActiveSessionExistsError,
+  getExistingSessionIdFromStartConflict,
 } from '@/utils/trackingSessionOwnership';
 import { toTrackingPoint } from '@/utils/trackingPointMapper';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
@@ -129,6 +138,7 @@ export function useOperatorTrackingSession() {
   const storedSessionRef = useRef<StoredTrackingSession | null>(null);
   const operatorBgActiveRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const consentUserIdRef = useRef<string | null>(null);
 
   const isActive = Boolean(storedSession?.sessionId);
 
@@ -140,6 +150,36 @@ export function useOperatorTrackingSession() {
   useEffect(() => {
     operatorBgActiveRef.current = operatorBgActive;
   }, [operatorBgActive]);
+
+  // El consentimiento pertenece a un user_id: al cambiar de mensajero se re-evalúa
+  // desde storage y nunca se hereda el estado en memoria del usuario anterior.
+  useEffect(() => {
+    const userId = user?.user_id?.trim() ?? null;
+    consentUserIdRef.current = userId;
+    if (!userId) {
+      setConsentAccepted(false);
+      return;
+    }
+    let cancelled = false;
+    void operatorCaptureConsentStorage.hasAccepted(userId).then((accepted) => {
+      if (cancelled || consentUserIdRef.current !== userId) return;
+      setConsentAccepted(accepted);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.user_id]);
+
+  const acceptConsent = useCallback(
+    (next: boolean) => {
+      setConsentAccepted(next);
+      const userId = consentUserIdRef.current;
+      if (next && userId) {
+        void operatorCaptureConsentStorage.accept(userId);
+      }
+    },
+    [],
+  );
 
   const syncOperatorBgState = useCallback(async () => {
     const started = await isOperatorTrackingStartedAsync();
@@ -513,48 +553,79 @@ export function useOperatorTrackingSession() {
 
       await assertCanStartOperatorCapture(actorId, appRole);
 
-      const session = await startTrackingSession({
+      const persistedBootstrap = await mensajeroBootstrapStorage.get(user.user_id);
+      const params = buildTrackingStartParams({
         purpose,
-        vehicle_label: label,
-        consent_accepted: true,
+        vehicleLabel: label,
+        consentAccepted: true,
         notes: notes.trim() || undefined,
-        metadata: { source: 'android_mvp' },
+        existingMetadata: { source: 'android_mvp' },
+        journeyId: persistedBootstrap?.journeyId,
+      });
+      if ('error' in params) {
+        setError(
+          params.error === 'consent_required'
+            ? 'Debes aceptar el consentimiento para iniciar.'
+            : 'Indica la etiqueta del vehículo.',
+        );
+        return;
+      }
+
+      const flight = await mensajeroStartSingleFlight.run(async () => {
+        try {
+          const session = await startTrackingSession(params);
+          const stored = buildStoredTrackingSession(session, user, label);
+
+          await operatorTrackingHealthStorage.clear();
+          await operatorTrackingPendingQueue.clear();
+          await trackingSessionStorage.setActive(stored);
+          resetSpeedTelemetryForNewSession(stored.sessionId);
+          resetTrackingPipelineForNewSession(stored.sessionId);
+          void startMotionTelemetryForSession(stored.sessionId);
+          setStoredSession(stored);
+          setRemoteStatus(session.status);
+          setPointsSent(0);
+          setLastPointAt(null);
+          recordTrackingDiagnostic(
+            'tracking-start',
+            { purpose: session.purpose, vehicleLabel: label },
+            session.id,
+          );
+
+          if (__DEV__) {
+            console.log('[tracking-session-start]', {
+              sessionId: shortSessionId(session.id),
+              purpose: session.purpose,
+            });
+          }
+
+          const bgOk = await startOperatorBackground();
+          if (!bgOk) {
+            setError(
+              'Captura iniciada sin segundo plano. Concede ubicación en segundo plano para registrar con pantalla apagada.',
+            );
+          }
+
+          await startWatch(session.id);
+          void runOperatorBgHealthCheck();
+        } catch (e) {
+          if (isActiveSessionExistsError(e)) {
+            const existingId = await findExistingActiveTrackingSessionId(
+              getExistingSessionIdFromStartConflict(e),
+            );
+            if (existingId) {
+              await runMensajeroHydrateCapture({ sessionId: existingId, user });
+              await hydrateFromStorage();
+              return;
+            }
+          }
+          throw e;
+        }
       });
 
-      const stored = buildStoredTrackingSession(session, user, label);
-
-      await operatorTrackingHealthStorage.clear();
-      await operatorTrackingPendingQueue.clear();
-      await trackingSessionStorage.setActive(stored);
-      resetSpeedTelemetryForNewSession(stored.sessionId);
-      resetTrackingPipelineForNewSession(stored.sessionId);
-      void startMotionTelemetryForSession(stored.sessionId);
-      setStoredSession(stored);
-      setRemoteStatus(session.status);
-      setPointsSent(0);
-      setLastPointAt(null);
-      recordTrackingDiagnostic(
-        'tracking-start',
-        { purpose: session.purpose, vehicleLabel: label },
-        session.id,
-      );
-
-      if (__DEV__) {
-        console.log('[tracking-session-start]', {
-          sessionId: shortSessionId(session.id),
-          purpose: session.purpose,
-        });
+      if (flight.status === 'skipped') {
+        setError('Ya hay un inicio de captura en curso.');
       }
-
-      const bgOk = await startOperatorBackground();
-      if (!bgOk) {
-        setError(
-          'Captura iniciada sin segundo plano. Concede ubicación en segundo plano para registrar con pantalla apagada.',
-        );
-      }
-
-      await startWatch(session.id);
-      void runOperatorBgHealthCheck();
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudo iniciar la captura'));
     } finally {
@@ -571,6 +642,7 @@ export function useOperatorTrackingSession() {
     startOperatorBackground,
     user,
     runOperatorBgHealthCheck,
+    hydrateFromStorage,
   ]);
 
   const finalizeCaptureLocally = useCallback(async (pendingQueuePolicy: 'always' | 'if-empty' | 'never' = 'always') => {
@@ -743,7 +815,7 @@ export function useOperatorTrackingSession() {
     notes,
     setNotes,
     consentAccepted,
-    setConsentAccepted,
+    setConsentAccepted: acceptConsent,
     loading,
     busy,
     closingAction,

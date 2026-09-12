@@ -5,13 +5,15 @@ import { MensajeroInicioView } from '@/components/mensajero/MensajeroInicioView'
 import { useMensajeroOperationsContext } from '@/contexts/MensajeroOperationsContext';
 
 export default function MensajeroInicioScreen() {
-  const { processPushDispatchIntent, refreshMyServices } = useMensajeroOperationsContext();
+  const { processPushDispatchIntent, refreshMyServices, syncBootstrap } =
+    useMensajeroOperationsContext();
 
   useFocusEffect(
     useCallback(() => {
       void refreshMyServices(true);
       void processPushDispatchIntent();
-    }, [processPushDispatchIntent, refreshMyServices]),
+      void syncBootstrap('focus');
+    }, [processPushDispatchIntent, refreshMyServices, syncBootstrap]),
   );
 
   return <MensajeroInicioView />;

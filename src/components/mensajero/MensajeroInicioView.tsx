@@ -41,6 +41,7 @@ export function MensajeroInicioView() {
     error,
     pushOfferNotice,
     availabilityWarning,
+    bootstrapNotice,
     canOperate,
     gpsStatus,
     hasLocationFix,
@@ -115,6 +116,7 @@ export function MensajeroInicioView() {
         {!canOperate ? <Banner message="La sesión no tiene actor_id válido para operar." /> : null}
         {pushOfferNotice ? <Banner message={pushOfferNotice} variant="warn" /> : null}
         {availabilityWarning ? <Banner message={availabilityWarning} variant="warn" /> : null}
+        {bootstrapNotice ? <Banner message={bootstrapNotice} variant="warn" /> : null}
         {error ? <Banner message={error} variant="error" /> : null}
       </SafeAreaView>
 

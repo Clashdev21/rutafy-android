@@ -16,6 +16,7 @@ import type { Service } from '@/types/service';
 import { getApiErrorMessage } from '@/utils/errors';
 import { isValidUuid } from '@/utils/isValidUuid';
 import { recoverAfterCloseSuccess } from '@/utils/mensajeroCloseRecovery';
+import { useMensajeroOperationalBootstrap } from '@/hooks/useMensajeroOperationalBootstrap';
 import {
   canHydrateMyServices,
   deriveMensajeroOperationalUiState,
@@ -107,6 +108,23 @@ export function useMensajeroOperations(
 
   const canOperate = Boolean(effectiveActorId && isValidUuid(effectiveActorId));
 
+  const bootstrapEnabled = canOperate && effectiveAppRole === 'MENSAJERO' && hasUser;
+  const {
+    bootstrapNotice,
+    lastBootstrapAction,
+    needsRetryOnReconnect,
+    syncBootstrap,
+  } = useMensajeroOperationalBootstrap(bootstrapEnabled);
+  const needsRetryOnReconnectRef = useRef(false);
+  needsRetryOnReconnectRef.current = needsRetryOnReconnect;
+  const reconnectAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (!needsRetryOnReconnect) {
+      reconnectAttemptedRef.current = false;
+    }
+  }, [needsRetryOnReconnect]);
+
   const refreshMyServices = useCallback(async (silent = false) => {
     if (!canHydrateMyServices({ canOperate, actorId: effectiveActorId })) return;
     if (__DEV__) {
@@ -118,6 +136,10 @@ export function useMensajeroOperations(
       const list = await mensajeroService.fetchMyServices(effectiveActorId as string);
       setMyServices(list);
       setError(null);
+      if (needsRetryOnReconnectRef.current && !reconnectAttemptedRef.current) {
+        reconnectAttemptedRef.current = true;
+        void syncBootstrap('reconnect', true);
+      }
     } catch (e) {
       setError(getApiErrorMessage(e, 'No se pudieron cargar mis servicios'));
     } finally {
@@ -126,7 +148,7 @@ export function useMensajeroOperations(
         console.log('[my-services-refresh-end]', { silent, durationMs: Date.now() - startedAt });
       }
     }
-  }, [effectiveActorId, canOperate]);
+  }, [effectiveActorId, canOperate, syncBootstrap]);
 
   const effectiveIsOnline = isOnline || hasActiveOperational;
   const firstOffer = availableServices[0] ?? null;
@@ -241,9 +263,10 @@ export function useMensajeroOperations(
       await Promise.all([
         refreshMyServices(silent),
         refreshOffers({ silent, forceOnline, source }),
+        syncBootstrap('refresh'),
       ]);
     },
-    [refreshMyServices, refreshOffers],
+    [refreshMyServices, refreshOffers, syncBootstrap],
   );
 
   const pollRefreshMyServices = useCallback(async () => {
@@ -418,7 +441,18 @@ export function useMensajeroOperations(
     } finally {
       setAvailabilitySyncing(false);
     }
-  }, [effectiveActorId, canOperate, activeService?.service_id, refreshMyServices, refreshOffers]);
+
+    // Cerrar el servicio libera el task GPS del heartbeat: si hay un Journey activo
+    // esperando captura, el bootstrap debe poder arrancarla ya, no en el próximo foreground.
+    void syncBootstrap('refresh', true);
+  }, [
+    effectiveActorId,
+    canOperate,
+    activeService?.service_id,
+    refreshMyServices,
+    refreshOffers,
+    syncBootstrap,
+  ]);
 
   const getServiceById = useCallback(
     (id: string) => myServices.find((s) => s.service_id === id) ?? null,
@@ -482,6 +516,8 @@ export function useMensajeroOperations(
     error,
     pushOfferNotice,
     availabilityWarning,
+    bootstrapNotice,
+    lastBootstrapAction,
     canOperate,
     gpsStatus: locationHeartbeat.gpsStatus,
     hasLocationFix: locationHeartbeat.hasLocationFix,
@@ -494,5 +530,6 @@ export function useMensajeroOperations(
     refreshOffers,
     processPushDispatchIntent,
     getServiceById,
+    syncBootstrap,
   };
 }

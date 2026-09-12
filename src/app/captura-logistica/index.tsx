@@ -217,7 +217,7 @@ export default function CapturaLogisticaScreen() {
 
           <Pressable
             style={styles.consentRow}
-            onPress={() => setConsentAccepted((v) => !v)}
+            onPress={() => setConsentAccepted(!consentAccepted)}
             disabled={formDisabled}>
             <View style={[styles.checkbox, consentAccepted && styles.checkboxOn]}>
               {consentAccepted ? (

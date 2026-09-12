@@ -28,6 +28,7 @@ export const MESSENGER_ENDPOINTS = {
   availability: (messengerId: string) =>
     `/v1/messengers/${encodeURIComponent(messengerId)}/availability`,
   heartbeat: '/v1/mensajero/heartbeat',
+  operationalBootstrap: '/v1/mensajero/operational-bootstrap',
 } as const;
 
 export const OFFER_ENDPOINTS = {

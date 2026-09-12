@@ -53,7 +53,7 @@
     "web": "expo start --web",
     "web:dev": "expo start --web",
     "lint": "expo lint",
-    "test:operational": "node --experimental-strip-types --test scripts/test-mensajero-operational.ts",
+    "test:operational": "node --experimental-strip-types --test scripts/test-mensajero-operational.ts scripts/test-operational-bootstrap.ts",
     "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts"
   },
   "private": true

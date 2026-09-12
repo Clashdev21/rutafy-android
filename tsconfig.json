@@ -2,6 +2,7 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": [
         "./src/*"
@@ -19,6 +20,7 @@
   ],
   "exclude": [
     "scripts/test-mensajero-operational.ts",
-    "scripts/test-control-mobile.ts"
+    "scripts/test-control-mobile.ts",
+    "scripts/test-operational-bootstrap.ts"
   ]
 }
