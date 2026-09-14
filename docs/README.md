@@ -17,6 +17,7 @@ Documentación oficial de la aplicación móvil Rutafy para operadores logístic
 | [Autenticación y navegación](./auth-navigation.md) | Onboarding, sesión, guards, rutas |
 | [Módulos operativos](./operational-modules.md) | Mensajero, transportista, captura logística |
 | [GPS y tracking](./gps-tracking.md) | Background location, captura logística |
+| [Auditoría velocidad/movimiento](./operational-speed-motion-audit.md) | Diagnóstico pipeline FG/BG, dictamen Estimator v1 |
 | [Push notifications](./push-notifications.md) | Permisos, ExpoPushToken, listeners, foreground/background/cold start, dispatch_offer |
 | [Integración API](./api-integration.md) | Cliente HTTP, endpoints, errores |
 | [Builds (Expo / EAS)](./builds.md) | Validaciones, preview, production, checklist |
