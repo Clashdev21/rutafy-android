@@ -3,7 +3,12 @@ import { describe, it } from 'node:test';
 import axios from 'axios';
 
 import type { AuthUser } from '../src/types/auth.ts';
-import { getBogotaDayRangeUtc } from '../src/utils/bogotaDayRange.ts';
+import { formatBogotaDayParam, getBogotaDayRangeUtc } from '../src/utils/bogotaDayRange.ts';
+import {
+  buildOperationalControlListParams,
+  CONTROL_DEFAULT_PROGRAM_CODE,
+  CONTROL_LIST_LIMIT,
+} from '../src/utils/controlMobileQuery.ts';
 import {
   asSafeText,
   deriveControlKpis,
@@ -96,6 +101,81 @@ describe('TEST 4 — día Bogotá → from/to UTC correctos', () => {
   });
 });
 
+describe('TEST 4B — "Programación de hoy" usa el contrato temporal moderno', () => {
+  const NOON = new Date('2026-09-15T17:00:00.000Z'); // 12:00 en Bogotá
+
+  it('envía temporal_mode=day, day (YYYY-MM-DD Bogotá) y timezone', () => {
+    const params = buildOperationalControlListParams({ now: NOON });
+    assert.equal(params.temporal_mode, 'day');
+    assert.equal(params.day, '2026-09-15');
+    assert.equal(params.timezone, 'America/Bogota');
+    assert.match(params.day, /^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('no envía from ni to', () => {
+    const params = buildOperationalControlListParams({ now: NOON });
+    const keys = Object.keys(params);
+    assert.equal(keys.includes('from'), false);
+    assert.equal(keys.includes('to'), false);
+    assert.deepEqual(keys.sort(), [
+      'day',
+      'limit',
+      'program_code',
+      'temporal_mode',
+      'timezone',
+      'view',
+    ]);
+  });
+
+  it('conserva view=containers, program_code y limit=100', () => {
+    const params = buildOperationalControlListParams({ now: NOON });
+    assert.equal(params.view, 'containers');
+    assert.equal(params.program_code, 'MABE_CO');
+    assert.equal(params.program_code, CONTROL_DEFAULT_PROGRAM_CODE);
+    assert.equal(params.limit, 100);
+    assert.equal(params.limit, CONTROL_LIST_LIMIT);
+  });
+
+  it('permite override de program_code y limit sin romper el contrato temporal', () => {
+    const params = buildOperationalControlListParams({
+      now: NOON,
+      programCode: 'OTRO_CO',
+      limit: 25,
+    });
+    assert.equal(params.program_code, 'OTRO_CO');
+    assert.equal(params.limit, 25);
+    assert.equal(params.temporal_mode, 'day');
+    assert.equal(params.day, '2026-09-15');
+  });
+
+  it('day no cambia de fecha alrededor de medianoche en Bogotá', () => {
+    // 23:59:59 Bogotá del 15 = 04:59:59Z del 16 → sigue siendo 2026-09-15.
+    assert.equal(
+      buildOperationalControlListParams({ now: new Date('2026-09-16T04:59:59.999Z') }).day,
+      '2026-09-15',
+    );
+    // 00:00:00 Bogotá del 16 = 05:00:00Z del 16 → ya es 2026-09-16.
+    assert.equal(
+      buildOperationalControlListParams({ now: new Date('2026-09-16T05:00:00.000Z') }).day,
+      '2026-09-16',
+    );
+    // Medianoche UTC no adelanta el día calendario de Bogotá.
+    assert.equal(
+      buildOperationalControlListParams({ now: new Date('2026-09-16T00:00:00.000Z') }).day,
+      '2026-09-15',
+    );
+  });
+
+  it('formatBogotaDayParam siempre produce YYYY-MM-DD con padding', () => {
+    assert.equal(formatBogotaDayParam(new Date('2026-01-05T17:00:00.000Z')), '2026-01-05');
+    assert.equal(formatBogotaDayParam(new Date('2026-12-31T22:00:00.000Z')), '2026-12-31');
+    // 2027-01-01T02:00Z = 2026-12-31 21:00 en Bogotá → no cruza el año.
+    assert.equal(formatBogotaDayParam(new Date('2027-01-01T02:00:00.000Z')), '2026-12-31');
+    // Cruce de mes hacia atrás.
+    assert.equal(formatBogotaDayParam(new Date('2026-10-01T03:00:00.000Z')), '2026-09-30');
+  });
+});
+
 describe('TEST 5 — operational-control response → mapper mobile', () => {
   it('mapea contenedor, ruta, estado, placa y riesgo sin recalcular estado', () => {
     const units = mapControlContainers({
@@ -157,6 +237,53 @@ describe('TEST 5 — operational-control response → mapper mobile', () => {
 
     const search = filterControlUnits(units, 'todos', 'abc123');
     assert.equal(search.length, 1);
+  });
+
+  it('usa plate/driver_name del backend sin caer a la identidad del messenger', () => {
+    const units = mapControlContainers({
+      view: 'containers',
+      containers: [
+        {
+          container_id: 'TXGU5742588',
+          operational_state: 'EN RUTA',
+          // Identidad autoritativa de la declaración (contrato moderno).
+          plate: 'WGY481',
+          driver_name: 'Carlos Declarado',
+          // Metadata secundaria: nunca debe ganar en la tarjeta.
+          messenger_plate: 'ZZZ999',
+          messenger_full_name: 'Otro Mensajero',
+        },
+      ],
+    });
+
+    assert.equal(units[0].plate, 'WGY481');
+    assert.equal(units[0].driverName, 'Carlos Declarado');
+    assert.notEqual(units[0].plate, 'ZZZ999');
+    assert.notEqual(units[0].driverName, 'Otro Mensajero');
+  });
+
+  it('búsqueda y filtros siguen operando sobre la placa declarada', () => {
+    const units = mapControlContainers({
+      containers: [
+        {
+          container_id: 'TXGU5742588',
+          operational_state: 'EN RUTA',
+          plate: 'WGY481',
+          driver_name: 'Carlos Declarado',
+          messenger_plate: 'ZZZ999',
+        },
+        { container_id: 'MSCU1111111', operational_state: 'PROGRAMADO', plate: 'AAA111' },
+      ],
+    });
+
+    assert.equal(filterControlUnits(units, 'todos', 'wgy481').length, 1);
+    assert.equal(filterControlUnits(units, 'todos', 'WGY').length, 1);
+    assert.equal(filterControlUnits(units, 'todos', 'TXGU').length, 1);
+    // La placa del messenger no es indexable en la búsqueda.
+    assert.equal(filterControlUnits(units, 'todos', 'ZZZ999').length, 0);
+    assert.equal(filterControlUnits(units, 'en_transito', '').length, 1);
+    assert.equal(filterControlUnits(units, 'programados', '').length, 1);
+    assert.equal(filterControlUnits(units, 'todos', '').length, 2);
   });
 
   it('no reinterpreta ESPERANDO GPS / ESPERANDO MOVIMIENTO en los KPIs v1', () => {

@@ -7,7 +7,7 @@ import {
   fetchOperationalControlList,
 } from '@/services/operationalControlService';
 import type { ControlListFilter, ControlUnitCard } from '@/types/operationalControl';
-import { formatBogotaDateLong, getBogotaDayRangeUtc } from '@/utils/bogotaDayRange';
+import { formatBogotaDateLong } from '@/utils/bogotaDayRange';
 import {
   deriveControlKpis,
   filterControlUnits,
@@ -35,12 +35,7 @@ export function useControlToday() {
 
     try {
       const now = new Date();
-      const range = getBogotaDayRangeUtc(now);
-      const data = await fetchOperationalControlList({
-        from: range.from,
-        to: range.to,
-        now,
-      });
+      const data = await fetchOperationalControlList({ now });
       setUnits(mapControlContainers(data));
       setDayLabel(formatBogotaDateLong(now));
       setError(null);

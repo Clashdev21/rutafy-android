@@ -27,6 +27,20 @@ export function getBogotaCalendarYmd(now: Date = new Date()): BogotaYmd {
   };
 }
 
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/**
+ * Fecha calendario Bogotá como YYYY-MM-DD para el contrato temporal moderno
+ * (temporal_mode=day). Derivada de getBogotaCalendarYmd, así que no cambia de
+ * día alrededor de medianoche por usar UTC ni por el timezone del dispositivo.
+ */
+export function formatBogotaDayParam(now: Date = new Date()): string {
+  const ymd = getBogotaCalendarYmd(now);
+  return `${ymd.year}-${pad2(ymd.month)}-${pad2(ymd.day)}`;
+}
+
 /**
  * Ventana UTC del día calendario Bogotá:
  * 00:00:00.000 −05:00 → YYYY-MM-DDT05:00:00.000Z
