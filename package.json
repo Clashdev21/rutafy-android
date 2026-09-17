@@ -54,7 +54,8 @@
     "web:dev": "expo start --web",
     "lint": "expo lint",
     "test:operational": "node --experimental-strip-types --test scripts/test-mensajero-operational.ts scripts/test-operational-bootstrap.ts",
-    "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts"
+    "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts",
+    "test:operator-ingestion": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-ingestion-phase-a.ts"
   },
   "private": true
 }

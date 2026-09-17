@@ -30,7 +30,11 @@ import {
   FINALIZATION_DRAIN_TIMEOUT_MS,
   type FinalizationDrainOutcome,
 } from '@/utils/operatorTrackingFinalization';
-import { locationsToTrackingPoints } from '@/utils/trackingPointMapper';
+import {
+  clearOperatorIngestion,
+  ingestOperatorLocations,
+} from '@/utils/operatorIngestionCoordinator';
+import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { buildTraceId } from '@/utils/traceId';
 
@@ -145,6 +149,7 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
   await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
+  clearOperatorIngestion();
   const stored = await trackingSessionStorage.getActive();
   if (stored?.sessionId) {
     await operatorTrackingPendingQueue.clear(stored.sessionId);
@@ -638,6 +643,9 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     const stored = await trackingSessionStorage.getActive();
     const sessionId = stored?.sessionId?.trim() || undefined;
     const taskStarted = await isOperatorTrackingStartedAsync();
+    // Ownership confirmado en un evento de lifecycle/health ya existente:
+    // no se consulta el TaskManager por cada punto.
+    setOperatorBackgroundOwnership(taskStarted);
     await runTrackingHealthCheck({
       sessionId,
       fgServiceStarted: taskStarted,
@@ -665,11 +673,18 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     const payload = data as { locations?: unknown } | undefined;
     const rawLocationCount = Array.isArray(payload?.locations) ? payload.locations.length : 0;
 
-    const points = locationsToTrackingPoints(
-      payload?.locations,
-      'background',
-      BG_POINT_METADATA,
-    );
+    const startedAtMs = stored?.startedAt ? Date.parse(stored.startedAt) : null;
+    // Fase A: orden cronológico + dedupe exacto + gate temporal antes del estimador.
+    const ingestion = await ingestOperatorLocations({
+      sessionId,
+      locations: payload?.locations,
+      channel: 'background',
+      metadata: BG_POINT_METADATA,
+      role: 'authoritative',
+      sessionStartedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+      sessionStartedAt: stored?.startedAt ?? null,
+    });
+    const points = ingestion.points;
 
     const intraCallbackCapturedAtSpanMs = computeIntraCallbackCapturedAtSpanMs(points);
 
@@ -680,6 +695,10 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
         locationCount: rawLocationCount,
         mappedPointCount: points.length,
         intraCallbackCapturedAtSpanMs,
+        sortedCallback: ingestion.sortedCallback,
+        rejectedCount: ingestion.rejected.length,
+        // Solo informativo: los inválidos ya se contaron en su propio evento.
+        invalidCount: ingestion.invalid,
         batchInFlight,
         finalizationActive,
       },

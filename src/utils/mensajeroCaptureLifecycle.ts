@@ -30,6 +30,7 @@ import {
   isTrackingSessionForbiddenOrNotFound,
   isTrackingSessionNotActiveError,
 } from '@/utils/trackingSessionOwnership';
+import { resetOperatorIngestionForSession } from '@/utils/operatorIngestionCoordinator';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
 import { startMotionTelemetryForSession } from '@/services/motionTelemetryService';
@@ -45,6 +46,7 @@ async function persistNewActiveSession(session: TrackingSession, user: AuthUser,
   await trackingSessionStorage.setActive(stored);
   resetSpeedTelemetryForNewSession(stored.sessionId);
   resetTrackingPipelineForNewSession(stored.sessionId);
+  resetOperatorIngestionForSession(stored.sessionId);
   void startMotionTelemetryForSession(stored.sessionId);
   await ensureOperatorBackgroundTracking();
   return stored;
@@ -160,6 +162,7 @@ export async function runMensajeroHydrateCapture(input: {
   await trackingSessionStorage.setActive(hydrated);
   resetSpeedTelemetryForNewSession(hydrated.sessionId);
   resetTrackingPipelineForNewSession(hydrated.sessionId);
+  resetOperatorIngestionForSession(hydrated.sessionId);
   void startMotionTelemetryForSession(hydrated.sessionId);
   await ensureOperatorBackgroundTracking();
 }

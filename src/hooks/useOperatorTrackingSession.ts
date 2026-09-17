@@ -63,7 +63,11 @@ import {
   isActiveSessionExistsError,
   getExistingSessionIdFromStartConflict,
 } from '@/utils/trackingSessionOwnership';
-import { toTrackingPoint } from '@/utils/trackingPointMapper';
+import {
+  ingestOperatorLocations,
+  resetOperatorIngestionForSession,
+} from '@/utils/operatorIngestionCoordinator';
+import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
 import { startMotionTelemetryForSession } from '@/services/motionTelemetryService';
@@ -203,6 +207,7 @@ export function useOperatorTrackingSession() {
   const stopOperatorBackground = useCallback(async () => {
     await stopOperatorTrackingAsync();
     operatorBgActiveRef.current = false;
+    setOperatorBackgroundOwnership(false);
     setOperatorBgActive(false);
   }, []);
 
@@ -211,6 +216,7 @@ export function useOperatorTrackingSession() {
     setRemoteStatus(null);
     setOperatorBgActive(false);
     operatorBgActiveRef.current = false;
+    setOperatorBackgroundOwnership(false);
     setElapsedSeconds(0);
     setPointsSent(0);
     setLastPointAt(null);
@@ -321,29 +327,53 @@ export function useOperatorTrackingSession() {
             sid,
           );
 
-          const point = toTrackingPoint(update, 'foreground', FG_POINT_METADATA);
-          if (!point) return;
+          // Fase A: el rol lo decide el ownership confirmado, y el mapeo ocurre
+          // dentro del coordinador. Con background autoritativo este callback no
+          // toca previousFix, motion, stats ni cola.
+          void (async () => {
+            const startedAt = trackingSessionStorage.getActiveSessionStartedAtSync();
+            const startedAtMs = startedAt ? Date.parse(startedAt) : null;
+            const ingestion = await ingestOperatorLocations({
+              sessionId: sid,
+              locations: [update],
+              channel: 'foreground',
+              metadata: FG_POINT_METADATA,
+              sessionStartedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+              sessionStartedAt: startedAt ?? null,
+            });
 
-          recordTrackingDiagnostic('gps-fix-received', gpsDetailFromPoint(point), sid);
-          setLastPointAt(point.captured_at);
+            // Snapshot de UI no mutante: válido en ambos roles.
+            const uiPoint = ingestion.points[0] ?? ingestion.observed[0] ?? null;
+            if (uiPoint) setLastPointAt(uiPoint.captured_at);
 
-          if (operatorBgActiveRef.current) {
-            return;
-          }
+            if (ingestion.role === 'observe') {
+              recordTrackingDiagnostic(
+                'operator-ingestion-observe',
+                { channel: 'foreground', observed: ingestion.observed.length },
+                sid,
+              );
+              return;
+            }
 
-          bufferRef.current.push(point);
-          recordTrackingDiagnostic(
-            'point-buffered',
-            { bufferSize: bufferRef.current.length, channel: 'foreground' },
-            sid,
-          );
-          const now = Date.now();
-          if (
-            now - lastFlushAtRef.current >= BATCH_FLUSH_MS ||
-            bufferRef.current.length >= 5
-          ) {
-            void flushBuffer(sid);
-          }
+            if (ingestion.points.length === 0) return;
+
+            for (const point of ingestion.points) {
+              recordTrackingDiagnostic('gps-fix-received', gpsDetailFromPoint(point), sid);
+              bufferRef.current.push(point);
+            }
+            recordTrackingDiagnostic(
+              'point-buffered',
+              { bufferSize: bufferRef.current.length, channel: 'foreground' },
+              sid,
+            );
+            const now = Date.now();
+            if (
+              now - lastFlushAtRef.current >= BATCH_FLUSH_MS ||
+              bufferRef.current.length >= 5
+            ) {
+              void flushBuffer(sid);
+            }
+          })();
         },
       );
     },
@@ -353,6 +383,7 @@ export function useOperatorTrackingSession() {
   const startOperatorBackground = useCallback(async (): Promise<boolean> => {
     const started = await startOperatorTrackingAsync();
     operatorBgActiveRef.current = started;
+    setOperatorBackgroundOwnership(started);
     setOperatorBgActive(started);
     return started;
   }, []);
@@ -380,6 +411,7 @@ export function useOperatorTrackingSession() {
       setVehicleLabel(local.vehicleLabel);
       resetSpeedTelemetryForNewSession(local.sessionId);
       resetTrackingPipelineForNewSession(local.sessionId);
+      resetOperatorIngestionForSession(local.sessionId);
       void startMotionTelemetryForSession(local.sessionId);
       recordTrackingDiagnostic('tracking-restored', {
         sessionId: local.sessionId,

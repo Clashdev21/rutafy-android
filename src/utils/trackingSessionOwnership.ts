@@ -15,6 +15,7 @@ import {
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingSessionEndReason } from '@/types/trackingDiagnostics';
+import { clearOperatorIngestion } from '@/utils/operatorIngestionCoordinator';
 import { resetMotionStateObserver } from '@/utils/motionStateObserver';
 import { resetSpeedTelemetryForNewSession, resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelinePreviousFix } from '@/utils/trackingPipelineObserver';
@@ -65,6 +66,8 @@ export async function cleanupLocalTrackingSession(
   resetSpeedTelemetryPreviousFix();
   resetMotionStateObserver();
   resetTrackingPipelinePreviousFix();
+  // Fase A: ningún punto de esta sesión puede participar en la siguiente.
+  clearOperatorIngestion();
   await stopOperatorTrackingAsync();
 
   const active = await trackingSessionStorage.getActive();

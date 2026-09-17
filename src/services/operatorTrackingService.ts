@@ -6,6 +6,7 @@ import { BACKGROUND_LOCATION_TASK_NAME } from '@/services/backgroundLocationTask
 import { OPERATOR_TRACKING_TASK_NAME } from '@/services/operatorTrackingTask';
 import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { notePipelineTaskEvent } from '@/utils/trackingPipelineObserver';
 
 const TIME_INTERVAL_MS = 20000;
@@ -147,6 +148,8 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
     if (__DEV__) {
       console.log('[operator-bg-start]', { started, task: OPERATOR_TRACKING_TASK_NAME });
     }
+    // Ownership confirmado: background pasa a ser el canal autoritativo.
+    setOperatorBackgroundOwnership(started);
     if (started) {
       notePipelineTaskEvent('bg-task-start');
       recordTrackingDiagnostic(
@@ -199,6 +202,8 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
 
   try {
     await Location.stopLocationUpdatesAsync(OPERATOR_TRACKING_TASK_NAME);
+    // Background dejó de ser autoritativo: foreground vuelve a serlo.
+    setOperatorBackgroundOwnership(false);
     const stored = await trackingSessionStorage.getActive();
     if (stored?.sessionId) {
       recordTrackingDiagnostic(
