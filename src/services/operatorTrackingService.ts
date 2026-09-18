@@ -6,7 +6,11 @@ import { BACKGROUND_LOCATION_TASK_NAME } from '@/services/backgroundLocationTask
 import { OPERATOR_TRACKING_TASK_NAME } from '@/services/operatorTrackingTask';
 import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
-import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
+import {
+  setOperatorBackgroundOwnership,
+  readOperatorTaskNativeState,
+  ensureOperatorBackgroundOwnership,
+} from '@/utils/operatorIngestionOwnership';
 import { notePipelineTaskEvent } from '@/utils/trackingPipelineObserver';
 
 const TIME_INTERVAL_MS = 20000;
@@ -90,6 +94,7 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
     if (__DEV__) {
       console.log('[operator-bg-start]', { skipped: true, reason: 'no_active_session' });
     }
+    setOperatorBackgroundOwnership(false);
     return false;
   }
 
@@ -97,11 +102,13 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
     if (__DEV__) {
       console.warn('[operator-bg-start]', { skipped: true, reason: 'messenger_bg_active' });
     }
+    setOperatorBackgroundOwnership(false);
     return false;
   }
 
   if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     console.warn('[operator-bg-start]', { skipped: true, reason: 'task_not_defined' });
+    setOperatorBackgroundOwnership(false);
     return false;
   }
 
@@ -128,6 +135,7 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
       if (__DEV__) {
         console.log('[operator-bg-start]', { started: true, alreadyStarted: true });
       }
+      setOperatorBackgroundOwnership(true);
       return true;
     }
 
@@ -144,13 +152,30 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
       },
     });
 
-    const started = await isOperatorTrackingStartedAsync();
+    const native = await readOperatorTaskNativeState(OPERATOR_TRACKING_TASK_NAME);
     if (__DEV__) {
-      console.log('[operator-bg-start]', { started, task: OPERATOR_TRACKING_TASK_NAME });
+      console.log('[operator-bg-start]', {
+        started: native === 'active',
+        task: OPERATOR_TRACKING_TASK_NAME,
+      });
     }
-    // Ownership confirmado: background pasa a ser el canal autoritativo.
-    setOperatorBackgroundOwnership(started);
-    if (started) {
+    if (native === 'unknown') {
+      // startLocationUpdatesAsync resolvió; no marcar inactivo por un chequeo fallido.
+      setOperatorBackgroundOwnership(true);
+      notePipelineTaskEvent('bg-task-start');
+      recordTrackingDiagnostic(
+        'bg-task-start',
+        {
+          fgServiceStarted: true,
+          taskManagerStarted: true,
+          task: OPERATOR_TRACKING_TASK_NAME,
+        },
+        stored?.sessionId,
+      );
+      return true;
+    }
+    setOperatorBackgroundOwnership(native === 'active');
+    if (native === 'active') {
       notePipelineTaskEvent('bg-task-start');
       recordTrackingDiagnostic(
         'bg-task-start',
@@ -162,7 +187,7 @@ export async function startOperatorTrackingAsync(): Promise<boolean> {
         stored?.sessionId,
       );
     }
-    return started;
+    return native === 'active';
   } catch (error) {
     const storedOnError = await trackingSessionStorage.getActive();
     recordTrackingDiagnostic(
@@ -180,6 +205,7 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
     if (__DEV__) {
       console.log('[operator-bg-stop]', { skipped: true, reason: 'task_not_defined' });
     }
+    setOperatorBackgroundOwnership(false);
     return;
   }
 
@@ -197,12 +223,12 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
     if (__DEV__) {
       console.log('[operator-bg-stop]', { skipped: true, reason: 'not_started' });
     }
+    setOperatorBackgroundOwnership(false);
     return;
   }
 
   try {
     await Location.stopLocationUpdatesAsync(OPERATOR_TRACKING_TASK_NAME);
-    // Background dejó de ser autoritativo: foreground vuelve a serlo.
     setOperatorBackgroundOwnership(false);
     const stored = await trackingSessionStorage.getActive();
     if (stored?.sessionId) {
@@ -226,6 +252,7 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
       if (__DEV__) {
         console.warn('[operator-bg-stop]', { skipped: true, reason: 'task_not_found' });
       }
+      setOperatorBackgroundOwnership(false);
       return;
     }
     console.warn('[operator-bg-stop]', { error });
@@ -235,9 +262,10 @@ export async function stopOperatorTrackingAsync(): Promise<void> {
 export async function ensureOperatorBackgroundTracking(): Promise<boolean> {
   const stored = await trackingSessionStorage.getActive();
   if (!stored?.sessionId?.trim()) {
+    setOperatorBackgroundOwnership(false);
     return false;
   }
-  if (await isOperatorTrackingStartedAsync()) {
+  if (await ensureOperatorBackgroundOwnership(true, OPERATOR_TRACKING_TASK_NAME)) {
     return true;
   }
   const restored = await startOperatorTrackingAsync();

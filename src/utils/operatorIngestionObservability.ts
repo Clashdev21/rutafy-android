@@ -56,3 +56,72 @@ export function recordOperatorMapRejections(input: {
     );
   }
 }
+
+export type OperatorEmptyCallbackKind = 'timeout' | 'ingestion_noop';
+
+/**
+ * Un callback sin puntos aceptados no es timeout si el payload traía locations:
+ * fueron descartadas por ingesta (dedupe, orden, colisión o inválidos).
+ */
+export function classifyOperatorBackgroundEmptyCallback(
+  rawLocationCount: number,
+): OperatorEmptyCallbackKind {
+  return rawLocationCount > 0 ? 'ingestion_noop' : 'timeout';
+}
+
+export function recordOperatorIngestionNoop(input: {
+  sessionId: string;
+  locationCount: number;
+  rejectedCount: number;
+  invalidCount: number;
+}): void {
+  recordTrackingDiagnostic(
+    'operator-ingestion-noop',
+    {
+      channel: 'background',
+      locationCount: input.locationCount,
+      rejectedCount: input.rejectedCount,
+      invalidCount: input.invalidCount,
+    },
+    input.sessionId,
+  );
+}
+
+/**
+ * Callback BG sin puntos aceptados: timeout si no hubo locations, noop si la
+ * ingesta las descartó. Devuelve el kind para que el task solo haga drop en timeout.
+ */
+export function recordOperatorBackgroundEmptyCallback(input: {
+  sessionId: string;
+  rawLocationCount: number;
+  rejectedCount: number;
+  invalidCount: number;
+}): OperatorEmptyCallbackKind {
+  const kind = classifyOperatorBackgroundEmptyCallback(input.rawLocationCount);
+  if (kind === 'ingestion_noop') {
+    recordOperatorIngestionNoop({
+      sessionId: input.sessionId,
+      locationCount: input.rawLocationCount,
+      rejectedCount: input.rejectedCount,
+      invalidCount: input.invalidCount,
+    });
+    return kind;
+  }
+  recordTrackingDiagnostic(
+    'gps-location-timeout',
+    { channel: 'background', reason: 'empty_points' },
+    input.sessionId,
+  );
+  return kind;
+}
+
+export function recordOperatorForegroundIngestionError(
+  sessionId: string,
+  error: unknown,
+): void {
+  recordTrackingDiagnostic(
+    'operator-ingestion-error',
+    { channel: 'foreground', error: String(error) },
+    sessionId,
+  );
+}

@@ -31,6 +31,9 @@ import {
   type FinalizationDrainOutcome,
 } from '@/utils/operatorTrackingFinalization';
 import {
+  recordOperatorBackgroundEmptyCallback,
+} from '@/utils/operatorIngestionObservability';
+import {
   clearOperatorIngestion,
   ingestOperatorLocations,
 } from '@/utils/operatorIngestionCoordinator';
@@ -706,12 +709,15 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     );
 
     if (points.length === 0) {
-      recordTrackingDiagnostic(
-        'gps-location-timeout',
-        { channel: 'background', reason: 'empty_points' },
+      const emptyKind = recordOperatorBackgroundEmptyCallback({
         sessionId,
-      );
-      await recordTaskDrop('empty_points');
+        rawLocationCount,
+        rejectedCount: ingestion.rejected.length,
+        invalidCount: ingestion.invalid,
+      });
+      if (emptyKind === 'timeout') {
+        await recordTaskDrop('empty_points');
+      }
       return;
     }
 

@@ -67,6 +67,7 @@ import {
   ingestOperatorLocations,
   resetOperatorIngestionForSession,
 } from '@/utils/operatorIngestionCoordinator';
+import { recordOperatorForegroundIngestionError } from '@/utils/operatorIngestionObservability';
 import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
@@ -373,7 +374,9 @@ export function useOperatorTrackingSession() {
             ) {
               void flushBuffer(sid);
             }
-          })();
+          })().catch((error: unknown) => {
+            recordOperatorForegroundIngestionError(sid, error);
+          });
         },
       );
     },

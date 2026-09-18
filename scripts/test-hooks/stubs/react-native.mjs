@@ -6,7 +6,14 @@ export const AppState = {
   addEventListener: () => ({ remove: () => {} }),
 };
 
-export const Alert = { alert: () => {} };
+export const Alert = {
+  alert(_title, _message, buttons) {
+    const confirm = Array.isArray(buttons)
+      ? buttons.find((button) => button?.style !== 'cancel' && typeof button?.onPress === 'function')
+      : null;
+    confirm?.onPress();
+  },
+};
 
 export const NativeModules = {};
 

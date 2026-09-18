@@ -26,6 +26,7 @@ import {
   resetOperatorBackgroundOwnership,
   resolveOperatorIngestionRole,
   setOperatorBackgroundOwnership,
+  ensureOperatorBackgroundOwnership,
 } from '@/utils/operatorIngestionOwnership';
 import {
   BoundedExactDedupe,
@@ -51,6 +52,13 @@ import {
   getTrackingDiagnosticEvents,
 } from '@/services/trackingDiagnostics';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
+import {
+  classifyOperatorBackgroundEmptyCallback,
+  recordOperatorBackgroundEmptyCallback,
+  recordOperatorForegroundIngestionError,
+} from '@/utils/operatorIngestionObservability';
+import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 
 const SESSION_A = '11111111-1111-4111-8111-111111111111';
 const SESSION_B = '22222222-2222-4222-8222-222222222222';
@@ -716,5 +724,130 @@ describe('TEST 14 — diagnósticos de mapeo solo en canal autoritativo', () => 
     assert.equal(mixed.points.length, 1, 'solo el fix válido entra al transporte');
     assert.equal(Date.parse(mixed.points[0].captured_at), T0);
     assert.equal(getOperatorLastAcceptedFix()?.capturedAtMs, T0);
+  });
+});
+
+const SESSION_I = '99999999-9999-4999-8999-999999999999';
+const SESSION_J = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const SESSION_K = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+/** Mismo nombre que OPERATOR_TRACKING_TASK_NAME, sin importar el módulo del task. */
+const OPERATOR_TASK = 'rutafy-operator-tracking';
+
+const locationStub = Location as typeof Location & {
+  __setTaskStarted(taskName: string, started: boolean): void;
+  __reset(): void;
+};
+
+function defineOperatorTaskForTests(): void {
+  if (!TaskManager.isTaskDefined(OPERATOR_TASK)) {
+    TaskManager.defineTask(OPERATOR_TASK, async () => undefined);
+  }
+}
+
+describe('TEST 15 — restore ownership when BG task already started', () => {
+  it('ensure con task ya iniciado clasifica FG como observe sin esperar callback BG', async () => {
+    freshSession(SESSION_I);
+    resetOperatorBackgroundOwnership();
+    locationStub.__reset();
+    defineOperatorTaskForTests();
+    locationStub.__setTaskStarted(OPERATOR_TASK, true);
+
+    assert.equal(resolveOperatorIngestionRole('foreground'), 'authoritative');
+
+    const alreadyActive = await ensureOperatorBackgroundOwnership(true, OPERATOR_TASK);
+
+    assert.equal(alreadyActive, true);
+    assert.equal(isOperatorBackgroundAuthoritative(), true);
+    assert.equal(resolveOperatorIngestionRole('foreground'), 'observe');
+    locationStub.__reset();
+  });
+
+  it('task confirmado inactivo clasifica FG como authoritative', async () => {
+    freshSession(SESSION_I);
+    setOperatorBackgroundOwnership(true);
+    locationStub.__reset();
+    defineOperatorTaskForTests();
+
+    const alreadyActive = await ensureOperatorBackgroundOwnership(true, OPERATOR_TASK);
+
+    assert.equal(alreadyActive, false);
+    assert.equal(isOperatorBackgroundAuthoritative(), false);
+    assert.equal(resolveOperatorIngestionRole('foreground'), 'authoritative');
+  });
+
+  it('sin sesión activa restaura ownership false', async () => {
+    setOperatorBackgroundOwnership(true);
+    const alreadyActive = await ensureOperatorBackgroundOwnership(false, OPERATOR_TASK);
+    assert.equal(alreadyActive, false);
+    assert.equal(resolveOperatorIngestionRole('foreground'), 'authoritative');
+  });
+});
+
+describe('TEST 16 — empty callback vs ingestion noop', () => {
+  it('payload sin locations se clasifica como timeout', () => {
+    assert.equal(classifyOperatorBackgroundEmptyCallback(0), 'timeout');
+  });
+
+  it('locations presentes y todas descartadas se clasifican como ingestion_noop', () => {
+    assert.equal(classifyOperatorBackgroundEmptyCallback(3), 'ingestion_noop');
+  });
+
+  it('callback vacío registra timeout y no noop', async () => {
+    freshSession(SESSION_J);
+    const kind = recordOperatorBackgroundEmptyCallback({
+      sessionId: SESSION_J,
+      rawLocationCount: 0,
+      rejectedCount: 0,
+      invalidCount: 0,
+    });
+    assert.equal(kind, 'timeout');
+    await drainPipelineDiagnostics();
+    const timeouts = await eventsOfType('gps-location-timeout', SESSION_J);
+    const noops = await eventsOfType('operator-ingestion-noop', SESSION_J);
+    assert.equal(timeouts.length, 1);
+    assert.equal(noops.length, 0);
+  });
+
+  it('callback con duplicados registra noop y no timeout', async () => {
+    freshSession(SESSION_K);
+    const first = await ingest(SESSION_K, [{ atMs: T0 }], {
+      channel: 'background',
+      role: 'authoritative',
+    });
+    assert.equal(first.points.length, 1);
+    const again = await ingest(SESSION_K, [{ atMs: T0 }], {
+      channel: 'background',
+      role: 'authoritative',
+    });
+    assert.equal(again.points.length, 0);
+    assert.equal(again.rejected[0]?.reason, 'exact_duplicate');
+
+    const kind = recordOperatorBackgroundEmptyCallback({
+      sessionId: SESSION_K,
+      rawLocationCount: 1,
+      rejectedCount: again.rejected.length,
+      invalidCount: again.invalid,
+    });
+    assert.equal(kind, 'ingestion_noop');
+    await drainPipelineDiagnostics();
+    const timeouts = await eventsOfType('gps-location-timeout', SESSION_K);
+    const noops = await eventsOfType('operator-ingestion-noop', SESSION_K);
+    assert.equal(timeouts.length, 0);
+    assert.equal(noops.length, 1);
+    assert.equal(noops[0].detail?.rejectedCount, 1);
+    assert.equal(noops[0].detail?.invalidCount, 0);
+    assert.equal(noops[0].detail?.locationCount, 1);
+  });
+});
+
+describe('TEST 17 — error FG no queda como rechazo no manejado', () => {
+  it('el manejador registra diagnóstico con sesión y canal', async () => {
+    freshSession(SESSION_I);
+    recordOperatorForegroundIngestionError(SESSION_I, new Error('fallo fg'));
+    await drainPipelineDiagnostics();
+    const events = await eventsOfType('operator-ingestion-error', SESSION_I);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].detail?.channel, 'foreground');
+    assert.equal(String(events[0].detail?.error).includes('fallo fg'), true);
   });
 });

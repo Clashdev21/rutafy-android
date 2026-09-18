@@ -13,6 +13,8 @@ import type {
   OperatorIngestionChannel,
   OperatorIngestionRole,
 } from '@/types/operatorIngestion';
+import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 
 let backgroundAuthoritative = false;
 let lastConfirmedAtMs: number | null = null;
@@ -51,4 +53,54 @@ export function resolveOperatorIngestionRole(
 export function resetOperatorBackgroundOwnership(): void {
   backgroundAuthoritative = false;
   lastConfirmedAtMs = null;
+}
+
+export type OperatorNativeTaskState = 'active' | 'inactive' | 'unknown';
+
+/**
+ * Lee el estado nativo del task operator. `unknown` significa que la consulta
+ * falló: el llamador no debe inventar ownership.
+ */
+export async function readOperatorTaskNativeState(
+  taskName: string,
+): Promise<OperatorNativeTaskState> {
+  if (!TaskManager.isTaskDefined(taskName)) {
+    return 'inactive';
+  }
+  try {
+    const started = await Location.hasStartedLocationUpdatesAsync(taskName);
+    return started ? 'active' : 'inactive';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Sincroniza ownership solo cuando el estado nativo está confirmado.
+ * Devuelve el estado leído para que start/ensure/stop decidan el flujo.
+ */
+export async function syncOperatorBackgroundOwnershipFromNative(
+  taskName: string,
+): Promise<OperatorNativeTaskState> {
+  const state = await readOperatorTaskNativeState(taskName);
+  if (state === 'unknown') return state;
+  setOperatorBackgroundOwnership(state === 'active');
+  return state;
+}
+
+/**
+ * Restaura ownership confirmado sin arrancar el task.
+ * `ensureOperatorBackgroundTracking` la usa antes de start: si el task ya
+ * corre, FG pasa a observe de inmediato, sin esperar el siguiente callback BG.
+ */
+export async function ensureOperatorBackgroundOwnership(
+  hasActiveSession: boolean,
+  taskName: string,
+): Promise<boolean> {
+  if (!hasActiveSession) {
+    setOperatorBackgroundOwnership(false);
+    return false;
+  }
+  const native = await syncOperatorBackgroundOwnershipFromNative(taskName);
+  return native === 'active';
 }
