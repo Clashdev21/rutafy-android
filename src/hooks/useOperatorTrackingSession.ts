@@ -7,13 +7,11 @@ import { useAuth } from '@/auth/useAuth';
 import {
   cancelTrackingSession,
   endTrackingSession,
-  fetchTrackingSession,
   sendTrackingPointsBatch,
   startTrackingSession,
 } from '@/services/trackingSessionService';
 import { requestForegroundGpsPermission } from '@/services/locationService';
 import {
-  ensureOperatorBackgroundTracking,
   isOperatorTrackingStartedAsync,
   startOperatorTrackingAsync,
   stopOperatorTrackingAsync,
@@ -58,10 +56,9 @@ import {
   cleanupLocalTrackingSession,
   clearActiveTrackingSession,
   isStoredTrackingSessionOwnedByUser,
-  isTrackingSessionForbiddenOrNotFound,
-  isTrackingSessionNotActiveError,
   isActiveSessionExistsError,
   getExistingSessionIdFromStartConflict,
+  decideOperatorBatchCatchAction,
 } from '@/utils/trackingSessionOwnership';
 import {
   ingestOperatorLocations,
@@ -231,6 +228,13 @@ export function useOperatorTrackingSession() {
     setSuccessMessage('La captura ya fue cerrada remotamente.');
   }, [resetInactiveSessionState, stopWatch]);
 
+  const handleWriterConflict = useCallback(async () => {
+    stopWatch();
+    await cleanupLocalTrackingSession('writer_conflict');
+    resetInactiveSessionState();
+    setSuccessMessage('La captura continúa en otro dispositivo.');
+  }, [resetInactiveSessionState, stopWatch]);
+
   const flushBuffer = useCallback(async (sessionId: string) => {
     if (operatorBgActiveRef.current) {
       bufferRef.current = [];
@@ -287,8 +291,29 @@ export function useOperatorTrackingSession() {
       }
     } catch (e) {
       recordForegroundBatchError(e, sessionId, batchStartedAt, batch.length);
-      if (isTrackingSessionNotActiveError(e)) {
+      const action = decideOperatorBatchCatchAction(e);
+      if (action.type === 'cleanup') {
+        if (action.reason === 'writer_conflict') {
+          recordTrackingDiagnostic(
+            'writer-conflict',
+            { channel: 'foreground', requeued: false },
+            sessionId,
+          );
+          await handleWriterConflict();
+          return;
+        }
         await handleSessionClosedRemotely();
+        return;
+      }
+      if (action.type === 'resume_writer') {
+        recordTrackingDiagnostic(
+          'writer-unclaimed',
+          { channel: 'foreground', requeued: false },
+          sessionId,
+        );
+        if (user) {
+          await runMensajeroHydrateCapture({ sessionId, user });
+        }
         return;
       }
       bufferRef.current.unshift(...batch);
@@ -300,7 +325,7 @@ export function useOperatorTrackingSession() {
     } finally {
       flushInFlightRef.current = false;
     }
-  }, [handleSessionClosedRemotely]);
+  }, [handleSessionClosedRemotely, handleWriterConflict, user]);
 
   const startWatch = useCallback(
     async (sessionId: string) => {
@@ -402,7 +427,7 @@ export function useOperatorTrackingSession() {
         return;
       }
 
-      if (!isStoredTrackingSessionOwnedByUser(local, user)) {
+      if (!user || !isStoredTrackingSessionOwnedByUser(local, user)) {
         await clearActiveTrackingSession('owner_mismatch');
         stopWatch();
         resetInactiveSessionState();
@@ -421,30 +446,22 @@ export function useOperatorTrackingSession() {
         startedAt: local.startedAt,
       }, local.sessionId);
 
-      try {
-        const remote = await fetchTrackingSession(local.sessionId);
-        if (!remote || remote.status !== 'active') {
-          await clearActiveTrackingSession('remote_inactive');
-          stopWatch();
-          resetInactiveSessionState();
-          return;
-        }
-        setRemoteStatus(remote.status);
-      } catch (e) {
-        if (isTrackingSessionForbiddenOrNotFound(e)) {
-          await clearActiveTrackingSession('remote_forbidden');
-          stopWatch();
-          resetInactiveSessionState();
-          return;
-        }
-        setRemoteStatus('active');
+      await runMensajeroHydrateCapture({ sessionId: local.sessionId, user });
+      const after = await trackingSessionStorage.getActive();
+      if (!after || !isStoredTrackingSessionOwnedByUser(after, user)) {
+        stopWatch();
+        resetInactiveSessionState();
+        return;
       }
 
-      const bgOk = await ensureOperatorBackgroundTracking();
+      setStoredSession(after);
+      setRemoteStatus('active');
+      const bgOk = await isOperatorTrackingStartedAsync();
       operatorBgActiveRef.current = bgOk;
       setOperatorBgActive(bgOk);
+      setOperatorBackgroundOwnership(bgOk);
 
-      await startWatch(local.sessionId);
+      await startWatch(after.sessionId);
     } finally {
       setLoading(false);
     }

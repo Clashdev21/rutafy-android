@@ -114,7 +114,11 @@ export async function clearActiveTrackingSession(
 }
 
 export {
+  decideCaptureResumeFollowUp,
+  decideOperatorBatchCatchAction,
   getExistingSessionIdFromStartConflict,
   isActiveSessionExistsError,
   isTrackingSessionNotActiveError,
+  isWriterConflictError,
+  isWriterUnclaimedError,
 } from './trackingSessionErrors';

@@ -4,8 +4,10 @@ import {
   endTrackingSession,
   fetchMyTrackingSessions,
   fetchTrackingSession,
+  resumeTrackingSession,
   startTrackingSession,
 } from '@/services/trackingSessionService';
+import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import {
   ensureOperatorBackgroundTracking,
   stopOperatorTrackingAsync,
@@ -15,6 +17,7 @@ import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQ
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import {
   buildTrackingStartParams,
+  mensajeroResumeSingleFlight,
   mensajeroStartSingleFlight,
 } from '@/utils/mensajeroStartFlow';
 import {
@@ -30,6 +33,10 @@ import {
   isTrackingSessionForbiddenOrNotFound,
   isTrackingSessionNotActiveError,
 } from '@/utils/trackingSessionOwnership';
+import {
+  decideCaptureResumeFollowUp,
+  mapResumeHttpErrorToHydrateOutcome,
+} from '@/utils/trackingSessionErrors';
 import { resetOperatorIngestionForSession } from '@/utils/operatorIngestionCoordinator';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
@@ -112,6 +119,63 @@ export async function runMensajeroStartWithJourney(input: {
   return result.value;
 }
 
+async function persistHydratedSession(
+  remote: TrackingSession,
+  user: AuthUser,
+  fallbackVehicleLabel: string | undefined,
+): Promise<void> {
+  const hydrated = buildStoredTrackingSession(
+    remote,
+    user,
+    remote.vehicle_label || fallbackVehicleLabel || 'Unidad operativa',
+  );
+  await trackingSessionStorage.setActive(hydrated);
+  resetSpeedTelemetryForNewSession(hydrated.sessionId);
+  resetTrackingPipelineForNewSession(hydrated.sessionId);
+  resetOperatorIngestionForSession(hydrated.sessionId);
+  void startMotionTelemetryForSession(hydrated.sessionId);
+}
+
+async function enableCaptureAfterResume(input: {
+  sessionId: string;
+  user: AuthUser;
+  local: Awaited<ReturnType<typeof trackingSessionStorage.getActive>>;
+  resumed: TrackingSession | null;
+}): Promise<void> {
+  let remote = input.resumed;
+  if (!remote || remote.status !== 'active') {
+    try {
+      remote = await fetchTrackingSession(input.sessionId);
+    } catch (error) {
+      if (isTrackingSessionForbiddenOrNotFound(error)) {
+        if (input.local?.sessionId === input.sessionId) {
+          await cleanupLocalTrackingSession('remote_forbidden');
+        }
+        return;
+      }
+      if (isTransientNetworkError(error) || isTransientServerError(error)) {
+        if (input.local?.sessionId === input.sessionId) {
+          await ensureOperatorBackgroundTracking();
+        }
+        return;
+      }
+      throw error;
+    }
+  }
+
+  if (!remote || remote.status !== 'active') {
+    if (input.local?.sessionId === input.sessionId) {
+      await cleanupLocalTrackingSession('remote_inactive');
+    }
+    return;
+  }
+
+  if (input.local?.sessionId !== input.sessionId) {
+    await persistHydratedSession(remote, input.user, input.local?.vehicleLabel);
+  }
+  await ensureOperatorBackgroundTracking();
+}
+
 export async function runMensajeroHydrateCapture(input: {
   sessionId: string;
   user: AuthUser;
@@ -123,48 +187,74 @@ export async function runMensajeroHydrateCapture(input: {
   // Una sesión local de otro usuario no se reclama ni se reanuda.
   const local =
     localRaw && isStoredTrackingSessionOwnedByUser(localRaw, input.user) ? localRaw : null;
-  if (local?.sessionId === sessionId) {
+  const hasMatchingLocalSession = local?.sessionId === sessionId;
+
+  const flight = await mensajeroResumeSingleFlight.run(async () => {
+    try {
+      const resumed = await resumeTrackingSession(sessionId);
+      recordTrackingDiagnostic(
+        'tracking-resume',
+        { sessionId, sameLocalSession: hasMatchingLocalSession },
+        sessionId,
+      );
+      return { outcome: 'ok' as const, resumed };
+    } catch (error) {
+      const mapped = mapResumeHttpErrorToHydrateOutcome(error);
+      if (mapped) {
+        return { outcome: mapped, resumed: null };
+      }
+      if (isTrackingSessionForbiddenOrNotFound(error)) {
+        return { outcome: 'forbidden' as const, resumed: null };
+      }
+      if (isTransientNetworkError(error) || isTransientServerError(error)) {
+        return { outcome: 'transient' as const, resumed: null };
+      }
+      throw error;
+    }
+  });
+
+  const resumeOutcome =
+    flight.status === 'skipped' ? 'skipped' : flight.value.outcome;
+  const followUp = decideCaptureResumeFollowUp({
+    resumeOutcome,
+    hasMatchingLocalSession,
+  });
+
+  if (followUp === 'cleanup') {
+    const cleanupReason =
+      resumeOutcome === 'writer_conflict'
+        ? 'writer_conflict'
+        : resumeOutcome === 'inactive'
+          ? 'session_not_active'
+          : 'remote_forbidden';
+    recordTrackingDiagnostic(
+      resumeOutcome === 'writer_conflict'
+        ? 'writer-conflict'
+        : resumeOutcome === 'inactive'
+          ? 'tracking-session-inactive'
+          : 'tracking-resume-denied',
+      { source: 'hydrate', sessionId, resumeOutcome },
+      sessionId,
+    );
+    await cleanupLocalTrackingSession(cleanupReason);
+    return;
+  }
+
+  if (followUp === 'preserve_offline') {
     await ensureOperatorBackgroundTracking();
     return;
   }
 
-  let remote: TrackingSession | null = null;
-  try {
-    remote = await fetchTrackingSession(sessionId);
-  } catch (error) {
-    if (isTrackingSessionForbiddenOrNotFound(error)) {
-      if (local?.sessionId === sessionId) {
-        await cleanupLocalTrackingSession('remote_forbidden');
-      }
-      return;
-    }
-    if (isTransientNetworkError(error) || isTransientServerError(error)) {
-      if (local?.sessionId === sessionId) {
-        await ensureOperatorBackgroundTracking();
-      }
-      return;
-    }
-    throw error;
-  }
-
-  if (!remote || remote.status !== 'active') {
-    if (local?.sessionId === sessionId) {
-      await cleanupLocalTrackingSession('remote_inactive');
-    }
+  if (followUp === 'abort') {
     return;
   }
 
-  const hydrated = buildStoredTrackingSession(
-    remote,
-    input.user,
-    remote.vehicle_label || local?.vehicleLabel || 'Unidad operativa',
-  );
-  await trackingSessionStorage.setActive(hydrated);
-  resetSpeedTelemetryForNewSession(hydrated.sessionId);
-  resetTrackingPipelineForNewSession(hydrated.sessionId);
-  resetOperatorIngestionForSession(hydrated.sessionId);
-  void startMotionTelemetryForSession(hydrated.sessionId);
-  await ensureOperatorBackgroundTracking();
+  await enableCaptureAfterResume({
+    sessionId,
+    user: input.user,
+    local,
+    resumed: flight.status === 'ran' && flight.value.outcome === 'ok' ? flight.value.resumed : null,
+  });
 }
 
 export async function runMensajeroStopCapture(

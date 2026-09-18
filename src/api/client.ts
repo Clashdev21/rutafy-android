@@ -7,6 +7,11 @@ import { tokenStorage } from '@/auth/tokenStorage';
 import { API_BASE_URL } from '@/config/env';
 import { recordTrackingDiagnostic } from '@/services/trackingDiagnostics';
 import {
+  getOrCreateInstallationId,
+  RUTAFY_INSTALLATION_ID_HEADER,
+  shouldAttachInstallationId,
+} from '@/utils/operatorInstallation';
+import {
   isConfirmedAuthInvalidError,
   isTransientNetworkError,
   isTransientServerError,
@@ -92,6 +97,20 @@ apiClient.interceptors.request.use(async (config) => {
     }
     if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    const requestUrl = `${config.baseURL ?? ''}${config.url ?? ''}`;
+    if (shouldAttachInstallationId(requestUrl) || shouldAttachInstallationId(url)) {
+      const installationId = await getOrCreateInstallationId();
+      if (installationId) {
+        const headers = config.headers;
+        if (headers && typeof headers.set === 'function') {
+          headers.set(RUTAFY_INSTALLATION_ID_HEADER, installationId);
+        } else {
+          config.headers = config.headers ?? {};
+          config.headers[RUTAFY_INSTALLATION_ID_HEADER] = installationId;
+        }
+      }
     }
   }
   return config;

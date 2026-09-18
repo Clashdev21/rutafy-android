@@ -167,6 +167,17 @@ export async function startTrackingSession(
   return session;
 }
 
+export async function resumeTrackingSession(
+  sessionId: string,
+): Promise<TrackingSession | null> {
+  const id = sessionId.trim();
+  if (!id) {
+    throw new Error('tracking_session_id requerido para resume');
+  }
+  const { data } = await apiClient.post(TRACKING_SESSION_ENDPOINTS.resume(id), {});
+  return normalizeSession(data);
+}
+
 export async function sendTrackingPointsBatch(
   sessionId: string,
   points: TrackingPointInput[],
