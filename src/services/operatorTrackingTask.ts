@@ -24,13 +24,29 @@ import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
 import { classifyOperatorBgBatchError } from '@/utils/operatorTrackingHealthAudit';
 import {
+  buildOperatorTrackingRequestHeaders,
+  getOrCreateInstallationId,
+} from '@/utils/operatorInstallation';
+import { mensajeroResumeSingleFlight } from '@/utils/mensajeroStartFlow';
+import {
+  classifyTrackingConflictFromResponse,
+  decideOperatorBatchCatchAction,
+} from '@/utils/trackingSessionErrors';
+import {
   computeIntraCallbackCapturedAtSpanMs,
 } from '@/utils/operatorTrackingPendingQueueLogic';
 import {
   FINALIZATION_DRAIN_TIMEOUT_MS,
   type FinalizationDrainOutcome,
 } from '@/utils/operatorTrackingFinalization';
-import { locationsToTrackingPoints } from '@/utils/trackingPointMapper';
+import {
+  recordOperatorBackgroundEmptyCallback,
+} from '@/utils/operatorIngestionObservability';
+import {
+  clearOperatorIngestion,
+  ingestOperatorLocations,
+} from '@/utils/operatorIngestionCoordinator';
+import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { buildTraceId } from '@/utils/traceId';
 
@@ -105,21 +121,49 @@ async function recordTaskDrop(reason: string): Promise<void> {
   await operatorTrackingHealthStorage.recordDrop(reason);
 }
 
-function isSessionNotActiveResponse(
-  status: number,
-  parsed: Record<string, unknown> | null,
-  detail: string,
-): boolean {
-  if (status !== 409) return false;
-  const token = [
-    parsed?.error,
-    parsed?.code,
-    parsed?.message,
-    detail,
-  ]
-    .filter((v): v is string => typeof v === 'string')
-    .join(' ');
-  return token.includes('session_not_active');
+async function claimWriterFromBackground(sessionId: string): Promise<void> {
+  const flight = await mensajeroResumeSingleFlight.run(async () => {
+    const token = await getValidAccessToken({ source: 'operator_tracking_bg_resume' });
+    if (!token) {
+      throw new Error('401');
+    }
+    const installationId = await getOrCreateInstallationId();
+    const path = TRACKING_SESSION_ENDPOINTS.resume(sessionId);
+    const response = await expoFetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: buildOperatorTrackingRequestHeaders({
+        accessToken: token,
+        installationId,
+        traceId: buildTraceId('operator-bg-resume'),
+      }),
+      body: '{}',
+    });
+    const text = await response.text();
+    let parsed: Record<string, unknown> | null = null;
+    if (text) {
+      try {
+        parsed = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!response.ok) {
+      const detail =
+        typeof parsed?.error === 'string'
+          ? parsed.error
+          : typeof parsed?.message === 'string'
+            ? parsed.message
+            : `HTTP ${response.status}`;
+      const code = classifyTrackingConflictFromResponse(response.status, parsed, detail);
+      if (code === 'writer_conflict') {
+        throw new Error('writer_conflict');
+      }
+      throw new Error(detail);
+    }
+    recordTrackingDiagnostic('tracking-resume', { channel: 'background' }, sessionId);
+  });
+
+  if (flight.status === 'skipped') return;
 }
 
 function recordBatchHttpError(
@@ -145,6 +189,7 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
   await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
+  clearOperatorIngestion();
   const stored = await trackingSessionStorage.getActive();
   if (stored?.sessionId) {
     await operatorTrackingPendingQueue.clear(stored.sessionId);
@@ -170,16 +215,16 @@ async function executeBatchPost(
     }
 > {
   const path = TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId);
+  const installationId = await getOrCreateInstallationId();
   let response: Response;
   try {
     response = await expoFetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'x-trace-id': buildTraceId('operator-bg-batch'),
-      },
+      headers: buildOperatorTrackingRequestHeaders({
+        accessToken: token,
+        installationId,
+        traceId: buildTraceId('operator-bg-batch'),
+      }),
       body: JSON.stringify({ points }),
     });
   } catch (e) {
@@ -353,8 +398,19 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
   }
 
   if (!result.ok) {
-    if (isSessionNotActiveResponse(result.status, result.parsed, result.detail)) {
+    const conflict = classifyTrackingConflictFromResponse(
+      result.status,
+      result.parsed,
+      result.detail,
+    );
+    if (conflict === 'session_not_active') {
       throw new Error('session_not_active');
+    }
+    if (conflict === 'writer_conflict') {
+      throw new Error('writer_conflict');
+    }
+    if (conflict === 'writer_unclaimed') {
+      throw new Error('writer_unclaimed');
     }
     if (result.status !== 401) {
       const totalLatencyMs = Date.now() - totalStartedAt;
@@ -474,12 +530,45 @@ async function enqueueAndFlushBackgroundPoints(
         await operatorTrackingHealthStorage.recordBatchOk();
         console.log('[operator-bg-batch-ok]', { accepted });
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        await operatorTrackingPendingQueue.requeueFront(sessionId, batch);
-        if (message.includes('session_not_active')) {
-          sessionNotActive = true;
+        const action = decideOperatorBatchCatchAction(e);
+        if (action.requeue) {
+          await operatorTrackingPendingQueue.requeueFront(sessionId, batch);
+        }
+        if (action.type === 'cleanup') {
+          if (action.reason === 'session_not_active') {
+            sessionNotActive = true;
+          }
           stoppedForError = true;
-          await cleanupClosedSessionLocally('session_not_active_bg');
+          recordTrackingDiagnostic(
+            action.reason === 'writer_conflict' ? 'writer-conflict' : 'tracking-cleanup',
+            { channel: 'background', reason: action.reason, requeued: false },
+            sessionId,
+          );
+          await cleanupClosedSessionLocally(
+            action.reason === 'writer_conflict' ? 'writer_conflict_bg' : 'session_not_active_bg',
+          );
+          break;
+        }
+        if (action.type === 'resume_writer') {
+          stoppedForError = true;
+          recordTrackingDiagnostic(
+            'writer-unclaimed',
+            { channel: 'background', requeued: false },
+            sessionId,
+          );
+          try {
+            await claimWriterFromBackground(sessionId);
+          } catch (resumeError) {
+            const resumeAction = decideOperatorBatchCatchAction(resumeError);
+            if (resumeAction.type === 'cleanup' && resumeAction.reason === 'writer_conflict') {
+              recordTrackingDiagnostic(
+                'writer-conflict',
+                { channel: 'background', source: 'resume_after_unclaimed' },
+                sessionId,
+              );
+              await cleanupClosedSessionLocally('writer_conflict_bg');
+            }
+          }
           break;
         }
         const errorCode = classifyOperatorBgBatchError(e);
@@ -638,6 +727,9 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     const stored = await trackingSessionStorage.getActive();
     const sessionId = stored?.sessionId?.trim() || undefined;
     const taskStarted = await isOperatorTrackingStartedAsync();
+    // Ownership confirmado en un evento de lifecycle/health ya existente:
+    // no se consulta el TaskManager por cada punto.
+    setOperatorBackgroundOwnership(taskStarted);
     await runTrackingHealthCheck({
       sessionId,
       fgServiceStarted: taskStarted,
@@ -665,11 +757,18 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     const payload = data as { locations?: unknown } | undefined;
     const rawLocationCount = Array.isArray(payload?.locations) ? payload.locations.length : 0;
 
-    const points = locationsToTrackingPoints(
-      payload?.locations,
-      'background',
-      BG_POINT_METADATA,
-    );
+    const startedAtMs = stored?.startedAt ? Date.parse(stored.startedAt) : null;
+    // Fase A: orden cronológico + dedupe exacto + gate temporal antes del estimador.
+    const ingestion = await ingestOperatorLocations({
+      sessionId,
+      locations: payload?.locations,
+      channel: 'background',
+      metadata: BG_POINT_METADATA,
+      role: 'authoritative',
+      sessionStartedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+      sessionStartedAt: stored?.startedAt ?? null,
+    });
+    const points = ingestion.points;
 
     const intraCallbackCapturedAtSpanMs = computeIntraCallbackCapturedAtSpanMs(points);
 
@@ -680,6 +779,10 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
         locationCount: rawLocationCount,
         mappedPointCount: points.length,
         intraCallbackCapturedAtSpanMs,
+        sortedCallback: ingestion.sortedCallback,
+        rejectedCount: ingestion.rejected.length,
+        // Solo informativo: los inválidos ya se contaron en su propio evento.
+        invalidCount: ingestion.invalid,
         batchInFlight,
         finalizationActive,
       },
@@ -687,12 +790,15 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     );
 
     if (points.length === 0) {
-      recordTrackingDiagnostic(
-        'gps-location-timeout',
-        { channel: 'background', reason: 'empty_points' },
+      const emptyKind = recordOperatorBackgroundEmptyCallback({
         sessionId,
-      );
-      await recordTaskDrop('empty_points');
+        rawLocationCount,
+        rejectedCount: ingestion.rejected.length,
+        invalidCount: ingestion.invalid,
+      });
+      if (emptyKind === 'timeout') {
+        await recordTaskDrop('empty_points');
+      }
       return;
     }
 

@@ -81,3 +81,4 @@ export function createStartSingleFlight() {
 }
 
 export const mensajeroStartSingleFlight = createStartSingleFlight();
+export const mensajeroResumeSingleFlight = createStartSingleFlight();
