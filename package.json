@@ -56,7 +56,8 @@
     "test:operational": "node --experimental-strip-types --test scripts/test-mensajero-operational.ts scripts/test-operational-bootstrap.ts",
     "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts",
     "test:operator-ingestion": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-ingestion-phase-a.ts",
-    "test:operator-c1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-c1-m1.ts"
+    "test:operator-c1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-c1-m1.ts",
+    "test:operator-n1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-network-n1.ts"
   },
   "private": true
 }

@@ -53,9 +53,21 @@ import { buildTraceId } from '@/utils/traceId';
 /** Task de ubicación en segundo plano para captura logística (separada del mensajero). */
 export const OPERATOR_TRACKING_TASK_NAME = 'rutafy-operator-tracking';
 
+/**
+ * Timeout HTTP de un POST background. Distinto de FINALIZATION_DRAIN_TIMEOUT_MS:
+ * este acota el fetch; el drain acota la espera de cierre.
+ *
+ * 20s: por encima del axios FG (15s) para redes BG más lentas; por debajo
+ * del drain (25s) para que un hang aborte y libere batchInFlight antes del
+ * deadline de finalization. No hay evidencia de latencias normales >20s.
+ */
+export const OPERATOR_BATCH_HTTP_TIMEOUT_MS = 20_000;
+
 const BG_POINT_METADATA = { source: 'android_background' as const };
 /** Tamaño máximo por POST; la cola puede acumular más mientras hay batch en vuelo. */
 const BG_BATCH_MAX_POINTS = 25;
+
+let operatorBatchHttpTimeoutMs = OPERATOR_BATCH_HTTP_TIMEOUT_MS;
 
 /** Concurrencia HTTP (máx. 1 POST). Distinto de mutationChain de AsyncStorage. */
 let batchInFlight = false;
@@ -114,6 +126,49 @@ export function isOperatorBatchInFlight(): boolean {
 
 export function isOperatorFinalizationActive(): boolean {
   return finalizationActive;
+}
+
+export class OperatorBatchHttpTimeoutError extends Error {
+  readonly name = 'OperatorBatchHttpTimeoutError';
+  readonly reason = 'http_timeout' as const;
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`operator_batch_http_timeout:${timeoutMs}`);
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function __setOperatorBatchHttpTimeoutMsForTests(ms: number | null): void {
+  operatorBatchHttpTimeoutMs = ms == null ? OPERATOR_BATCH_HTTP_TIMEOUT_MS : ms;
+}
+
+export function __resetOperatorBatchRuntimeForTests(): void {
+  batchInFlight = false;
+  finalizationActive = false;
+  batchIdleResolvers = [];
+}
+
+function classifyOperatorBatchFetchFailure(
+  error: unknown,
+  signal: AbortSignal,
+): 'http_timeout' | 'aborted' | 'network_error' {
+  if (signal.aborted || error instanceof OperatorBatchHttpTimeoutError) {
+    return 'http_timeout';
+  }
+  if (error instanceof Error) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      return 'aborted';
+    }
+    const msg = error.message.toLowerCase();
+    if (msg.includes('timeout') || msg.includes('timed out')) {
+      return 'http_timeout';
+    }
+    if (msg.includes('aborted') || msg.includes('abort')) {
+      return 'aborted';
+    }
+  }
+  return 'network_error';
 }
 
 async function recordTaskDrop(reason: string): Promise<void> {
@@ -216,6 +271,12 @@ async function executeBatchPost(
 > {
   const path = TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId);
   const installationId = await getOrCreateInstallationId();
+  const controller = new AbortController();
+  const timeoutMs = operatorBatchHttpTimeoutMs;
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
   let response: Response;
   try {
     response = await expoFetch(`${API_BASE_URL}${path}`, {
@@ -226,15 +287,31 @@ async function executeBatchPost(
         traceId: buildTraceId('operator-bg-batch'),
       }),
       body: JSON.stringify({ points }),
+      signal: controller.signal,
     });
   } catch (e) {
     const apiLatencyMs = Date.now() - apiStartedAt;
+    const kind = classifyOperatorBatchFetchFailure(e, controller.signal);
+    if (kind === 'http_timeout') {
+      recordTrackingDiagnostic(
+        'batch-timeout',
+        {
+          channel: 'background',
+          reason: 'http_timeout',
+          timeoutMs,
+          apiLatencyMs,
+          latencyMs: apiLatencyMs,
+        },
+        sessionId,
+      );
+      throw new OperatorBatchHttpTimeoutError(timeoutMs);
+    }
     const msg = e instanceof Error ? e.message : String(e);
-    const isTimeout = msg.toLowerCase().includes('timeout');
     recordTrackingDiagnostic(
-      isTimeout ? 'batch-timeout' : 'batch-error',
+      kind === 'aborted' ? 'batch-timeout' : 'batch-error',
       {
         channel: 'background',
+        ...(kind === 'aborted' ? { reason: 'aborted' } : {}),
         apiLatencyMs,
         latencyMs: apiLatencyMs,
         error: msg,
@@ -242,6 +319,8 @@ async function executeBatchPost(
       sessionId,
     );
     throw e;
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const text = await response.text();
@@ -444,7 +523,7 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
  * Si ya hay batch en vuelo, conserva puntos y retorna (sin descartar).
  * Durante finalizationActive: encola pero no inicia drain (lo posee END).
  */
-async function enqueueAndFlushBackgroundPoints(
+export async function enqueueAndFlushBackgroundPoints(
   sessionId: string,
   points: TrackingPointInput[],
   options?: { deferredBecauseInFlight?: boolean; forceFlush?: boolean },

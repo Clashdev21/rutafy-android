@@ -27,6 +27,8 @@ const NATIVE_STUBS = new Map([
   ['expo-location', 'expo-location.mjs'],
   ['expo-task-manager', 'expo-task-manager.mjs'],
   ['expo-application', 'expo-application.mjs'],
+  ['expo-sensors', 'expo-sensors.mjs'],
+  ['expo/fetch', 'expo-fetch.mjs'],
   ['@react-native-async-storage/async-storage', 'async-storage.mjs'],
 ]);
 
