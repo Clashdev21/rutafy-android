@@ -94,7 +94,9 @@ flowchart TB
 
 **Comportamiento:**
 
-- Convierte locations del task a `TrackingPointInput[]` (`locationsToTrackingPoints`).
+- Convierte locations del task a `TrackingPointInput[]` vía `ingestOperatorLocations`,
+  que es la única entrada operacional: ownership → sort por `capturedAt` → dedupe
+  exacto → validación temporal → observación autoritativa → cola/batch.
 - Lee `sessionId` desde `trackingSessionStorage.getActive()`.
 - Si no hay sesión → drop con log `[operator-bg-task-drop]`.
 - `POST /v1/tracking-sessions/:id/points/batch` vía `expo/fetch`.

@@ -41,6 +41,8 @@ export const TRACKING_SESSION_ENDPOINTS = {
   my: '/v1/tracking-sessions/my',
   byId: (sessionId: string) =>
     `/v1/tracking-sessions/${encodeURIComponent(sessionId)}`,
+  resume: (sessionId: string) =>
+    `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/resume`,
   pointsBatch: (sessionId: string) =>
     `/v1/tracking-sessions/${encodeURIComponent(sessionId)}/points/batch`,
   end: (sessionId: string) =>

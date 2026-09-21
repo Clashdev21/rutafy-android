@@ -1,7 +1,7 @@
 {
   "name": "rutafy-android",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
     "@expo/ui": "~56.0.18",
@@ -54,7 +54,10 @@
     "web:dev": "expo start --web",
     "lint": "expo lint",
     "test:operational": "node --experimental-strip-types --test scripts/test-mensajero-operational.ts scripts/test-operational-bootstrap.ts",
-    "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts"
+    "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts",
+    "test:operator-ingestion": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-ingestion-phase-a.ts",
+    "test:operator-c1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-c1-m1.ts",
+    "test:operator-n1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-network-n1.ts"
   },
   "private": true
 }

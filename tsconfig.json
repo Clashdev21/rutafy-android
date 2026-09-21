@@ -21,6 +21,9 @@
   "exclude": [
     "scripts/test-mensajero-operational.ts",
     "scripts/test-control-mobile.ts",
-    "scripts/test-operational-bootstrap.ts"
+    "scripts/test-operational-bootstrap.ts",
+    "scripts/test-operator-ingestion-phase-a.ts",
+    "scripts/test-operator-c1-m1.ts",
+    "scripts/test-operator-network-n1.ts"
   ]
 }
