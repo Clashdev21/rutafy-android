@@ -13,6 +13,7 @@ import { useColorScheme } from 'react-native';
 
 import { AuthProvider } from '@/auth/AuthProvider';
 import { AuthNavigationGuard } from '@/components/auth/AuthNavigationGuard';
+import { EnvironmentBadge } from '@/components/brand/EnvironmentBadge';
 import { RutafyBrandSplash } from '@/components/brand/RutafyBrandSplash';
 import { PushNotificationsBootstrap } from '@/components/notifications/PushNotificationsBootstrap';
 import { NotificationsInboxProvider } from '@/contexts/NotificationsInboxContext';
@@ -79,6 +80,7 @@ export default function RootLayout() {
           <PushNotificationsBootstrap />
           <AuthNavigationGuard />
           <Stack screenOptions={{ headerShown: false }} />
+          <EnvironmentBadge />
           <RutafyBrandSplash
             visible={showBrandSplash}
             onFinish={() => setShowBrandSplash(false)}
