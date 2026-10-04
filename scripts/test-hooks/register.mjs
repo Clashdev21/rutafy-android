@@ -9,4 +9,8 @@
 import { register } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
+if (typeof globalThis.__DEV__ === 'undefined') {
+  globalThis.__DEV__ = false;
+}
+
 register('./resolve-hooks.mjs', pathToFileURL(import.meta.filename));

@@ -1,5 +1,5 @@
 /** Stub de expo-location: el estado nativo se controla desde los tests. */
-const state = { started: new Set() };
+const state = { started: new Set(), startCount: new Map(), failNextStart: false };
 
 export const Accuracy = {
   Lowest: 1,
@@ -17,6 +17,11 @@ export async function hasStartedLocationUpdatesAsync(taskName) {
 }
 
 export async function startLocationUpdatesAsync(taskName) {
+  state.startCount.set(taskName, (state.startCount.get(taskName) ?? 0) + 1);
+  if (state.failNextStart) {
+    state.failNextStart = false;
+    throw new Error('start_failed');
+  }
   state.started.add(taskName);
 }
 
@@ -53,6 +58,16 @@ export function __setTaskStarted(taskName, started) {
   else state.started.delete(taskName);
 }
 
+export function __failNextStart() {
+  state.failNextStart = true;
+}
+
+export function __getStartCount(taskName) {
+  return state.startCount.get(taskName) ?? 0;
+}
+
 export function __reset() {
   state.started.clear();
+  state.startCount.clear();
+  state.failNextStart = false;
 }

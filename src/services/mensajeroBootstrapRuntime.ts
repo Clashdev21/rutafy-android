@@ -2,10 +2,6 @@ import { getOperationalBootstrap } from '@/services/operationalBootstrapService'
 import { operatorCaptureConsentStorage } from '@/storage/operatorCaptureConsentStorage';
 import { mensajeroBootstrapStorage } from '@/storage/mensajeroBootstrapStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
-import {
-  assertCanStartOperatorCapture,
-  isMessengerBackgroundTrackingStarted,
-} from '@/utils/operatorTrackingGuards';
 import { isOperatorTrackingStartedAsync } from '@/services/operatorTrackingService';
 import { isStoredTrackingSessionOwnedByUser } from '@/utils/trackingSessionOwnership';
 import {
@@ -39,16 +35,10 @@ function buildCycleDeps(user: AuthUser): BootstrapCycleDeps {
     },
     isCaptureActive: isOperatorTrackingStartedAsync,
     hasConsent: () => operatorCaptureConsentStorage.hasAccepted(user.user_id),
-    // 3B manda: el heartbeat GPS del servicio activo es dueño del task nativo.
-    canStartOperatorGps: async () => {
-      if (await isMessengerBackgroundTrackingStarted()) return false;
-      try {
-        await assertCanStartOperatorCapture(user.actor_id?.trim() ?? null, user.appRole);
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    // Journey CAPTURE_REQUIRED/ACTIVE tiene prioridad: Messenger BG ya no
+    // niega el start. El handoff detiene rutafy-background-location antes
+    // de registrar rutafy-operator-tracking.
+    canStartOperatorGps: async () => true,
     isStartBusy: () => mensajeroStartSingleFlight.isBusy(),
     getPersisted: () => mensajeroBootstrapStorage.get(user.user_id),
     persist: (snapshot) => mensajeroBootstrapStorage.set(user.user_id, snapshot),

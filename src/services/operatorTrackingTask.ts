@@ -22,6 +22,11 @@ import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthS
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
+import {
+  currentIdentityMayUploadOperatorSession,
+  refreshStatusRequiresLocationShutdown,
+} from '@/utils/authLossCaptureGate';
+import { stopLocationCaptureForAuthLoss } from '@/utils/authLossLocationShutdown';
 import { classifyOperatorBgBatchError } from '@/utils/operatorTrackingHealthAudit';
 import {
   buildOperatorTrackingRequestHeaders,
@@ -411,6 +416,9 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
   );
 
   const authStartedAt = Date.now();
+  if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+    throw new Error('auth_loss_quiesced');
+  }
   let token = await getValidAccessToken({ source: 'operator_tracking_bg' });
   authLatencyMs += Date.now() - authStartedAt;
 
@@ -467,12 +475,13 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
       apiStartedAt = Date.now();
       result = await executeBatchPost(sessionId, points, token, apiStartedAt);
       apiLatencyMs += result.apiLatencyMs;
-    } else if (refreshOutcome.status === 'auth_invalid') {
+    } else if (refreshStatusRequiresLocationShutdown(refreshOutcome.status)) {
       recordTrackingDiagnostic(
         'refresh-failed',
         { source: 'operator_tracking_bg_401', reason: 'auth_invalid' },
         sessionId,
       );
+      await stopLocationCaptureForAuthLoss();
     }
   }
 
@@ -528,6 +537,10 @@ export async function enqueueAndFlushBackgroundPoints(
   points: TrackingPointInput[],
   options?: { deferredBecauseInFlight?: boolean; forceFlush?: boolean },
 ): Promise<{ stoppedForError: boolean; sessionNotActive: boolean }> {
+  if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+    return { stoppedForError: false, sessionNotActive: false };
+  }
+
   if (points.length > 0) {
     const enqueueResult = await operatorTrackingPendingQueue.enqueue(sessionId, points);
     if (enqueueResult.added > 0) {
@@ -592,6 +605,9 @@ export async function enqueueAndFlushBackgroundPoints(
   let sessionNotActive = false;
   try {
     while (true) {
+      if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+        break;
+      }
       const batch = await operatorTrackingPendingQueue.dequeueBatch(
         sessionId,
         BG_BATCH_MAX_POINTS,
@@ -830,6 +846,10 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
 
     if (!sessionId) {
       await recordTaskDrop('no_session');
+      return;
+    }
+
+    if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
       return;
     }
 

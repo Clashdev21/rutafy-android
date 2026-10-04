@@ -58,7 +58,9 @@
     "test:operator-ingestion": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-ingestion-phase-a.ts",
     "test:operator-c1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-c1-m1.ts",
     "test:operator-n1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-network-n1.ts",
-    "test:app-identity": "node --experimental-strip-types --test scripts/test-app-identity.ts"
+    "test:app-identity": "node --experimental-strip-types --test scripts/test-app-identity.ts",
+    "test:location-handoff": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-location-ownership-handoff.ts",
+    "test:auth-loss": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-auth-loss-location.ts"
   },
   "private": true
 }

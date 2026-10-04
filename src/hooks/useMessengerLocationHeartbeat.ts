@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 
 import { postHeartbeat, type MessengerHeartbeatPayload } from '@/services/mensajeroService';
+import { registerForegroundCaptureStopper } from '@/utils/authLossCaptureGate';
 import {
   getCurrentGpsPosition,
   hasValidLatLng,
@@ -54,6 +55,13 @@ export function useMessengerLocationHeartbeat(params: {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+
+  useEffect(() => {
+    return registerForegroundCaptureStopper(() => {
+      watchSubscriptionRef.current?.remove();
+      watchSubscriptionRef.current = null;
+    });
+  }, []);
   const isSendingRef = useRef(false);
   const lastSentAtRef = useRef(0);
   const hasSentInitialRef = useRef(false);

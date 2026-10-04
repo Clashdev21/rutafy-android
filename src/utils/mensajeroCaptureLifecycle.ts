@@ -42,6 +42,7 @@ import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
 import { startMotionTelemetryForSession } from '@/services/motionTelemetryService';
 import type { BootstrapStartOutcome } from '@/utils/mensajeroBootstrapCoordinator';
+import { releaseJourneyLocationAndRestoreMessenger } from '@/utils/locationOwnershipHandoff';
 import type { MensajeroStopExecution } from '@/utils/mensajeroStopFlow';
 
 const DEFAULT_METADATA = { source: 'android_mvp' as const };
@@ -270,10 +271,12 @@ export async function runMensajeroStopCapture(
     await stopOperatorTrackingAsync();
     await endTrackingSession(targetId);
     await cleanupLocalTrackingSession('capture_closed');
+    await releaseJourneyLocationAndRestoreMessenger();
     return 'stopped';
   } catch (error) {
     if (isTrackingSessionNotActiveError(error) || isTrackingSessionForbiddenOrNotFound(error)) {
       await cleanupLocalTrackingSession('session_not_active');
+      await releaseJourneyLocationAndRestoreMessenger();
       return 'already_stopped';
     }
     if (isTransientNetworkError(error) || isTransientServerError(error)) {

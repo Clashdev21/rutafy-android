@@ -12,6 +12,7 @@ import type {
   TrackingSessionStats,
   TrackingSessionStatus,
 } from '@/types/tracking';
+import { currentIdentityMayUploadOperatorSession } from '@/utils/authLossCaptureGate';
 
 function pickStr(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -182,6 +183,9 @@ export async function sendTrackingPointsBatch(
   sessionId: string,
   points: TrackingPointInput[],
 ): Promise<{ accepted: number }> {
+  if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+    throw new Error('auth_loss_quiesced');
+  }
   const { data } = await apiClient.post(TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId), {
     points,
   });

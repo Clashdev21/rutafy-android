@@ -99,6 +99,17 @@ export async function cleanupLocalTrackingSession(
   await trackingSessionStorage.clearActive();
 }
 
+/**
+ * Otro usuario abrió la app. No adopta la sesión, no sube su cola y
+ * no la borra. La referencia local sigue disponible si vuelve el dueño.
+ */
+export async function preserveForeignTrackingSession(): Promise<void> {
+  if (__DEV__) {
+    console.log('[tracking-session-owner-mismatch]', { preserved: true });
+  }
+  await stopOperatorTrackingAsync();
+}
+
 export async function clearActiveTrackingSession(
   reason: 'owner_mismatch' | 'remote_inactive' | 'remote_forbidden',
 ): Promise<void> {

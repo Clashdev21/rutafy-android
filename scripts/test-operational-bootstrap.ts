@@ -675,10 +675,10 @@ describe('O/P — 401 y 403 van al auth lifecycle', () => {
 });
 
 describe('W — ASSIGNED + CAPTURE_REQUIRED', () => {
-  it('con heartbeat GPS dueño del task nativo no crea sesión: capture_pending', async () => {
+  it('si canStartOperatorGps es false la política conserva capture_pending', async () => {
     const deps = makeDeps({
       fetchBootstrap: async () => captureRequired(),
-      // ASSIGNED ⇒ bg heartbeat activo ⇒ guard 3B niega el task de captura.
+      // Válvula de política: el runtime ya no niega GPS por Messenger BG.
       canStartOperatorGps: async () => false,
     });
     const result = await runOperationalBootstrapCycle(deps);
@@ -689,6 +689,17 @@ describe('W — ASSIGNED + CAPTURE_REQUIRED', () => {
     assert.equal(result.snapshot.journeyId, 'J-1');
     assert.equal(result.notice, BOOTSTRAP_CAPTURE_PENDING_NOTICE);
     assert.equal(result.notice?.includes('J-1'), false);
+  });
+
+  it('CAPTURE_REQUIRED arranca si GPS puede iniciar aunque el mensajero esté en servicio', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+      canStartOperatorGps: async () => true,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'start');
+    assert.equal(deps.calls.start, 1);
+    assert.equal(result.snapshot.journeyId, 'J-1');
   });
 
   it('ASSIGNED se deriva del servicio, no del bootstrap', () => {

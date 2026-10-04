@@ -11,6 +11,8 @@ import {
   RUTAFY_INSTALLATION_ID_HEADER,
   shouldAttachInstallationId,
 } from '@/utils/operatorInstallation';
+import { markAuthLossCaptureBlocked } from '@/utils/authLossCaptureGate';
+import { stopLocationCaptureForAuthLoss } from '@/utils/authLossLocationShutdown';
 import {
   isConfirmedAuthInvalidError,
   isTransientNetworkError,
@@ -69,8 +71,12 @@ function authLog(tag: string, detail?: Record<string, unknown>): void {
 
 function clearAuthAndNotify(reason: string, detail?: unknown): void {
   authLog('[auth-session-expired-confirmed]', { reason, detail });
-  void tokenStorage.clearAll();
-  sessionEvents.emitSessionExpired();
+  markAuthLossCaptureBlocked();
+  void (async () => {
+    await stopLocationCaptureForAuthLoss();
+    await tokenStorage.clearAll();
+    sessionEvents.emitSessionExpired();
+  })();
 }
 
 apiClient.interceptors.request.use(async (config) => {

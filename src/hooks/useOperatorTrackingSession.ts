@@ -5,6 +5,10 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import {
+  isNewOperatorObservationBlocked,
+  registerForegroundCaptureStopper,
+} from '@/utils/authLossCaptureGate';
+import {
   cancelTrackingSession,
   endTrackingSession,
   sendTrackingPointsBatch,
@@ -54,7 +58,7 @@ import {
 import {
   buildStoredTrackingSession,
   cleanupLocalTrackingSession,
-  clearActiveTrackingSession,
+  preserveForeignTrackingSession,
   isStoredTrackingSessionOwnedByUser,
   isActiveSessionExistsError,
   getExistingSessionIdFromStartConflict,
@@ -65,6 +69,7 @@ import {
   resetOperatorIngestionForSession,
 } from '@/utils/operatorIngestionCoordinator';
 import { recordOperatorForegroundIngestionError } from '@/utils/operatorIngestionObservability';
+import { releaseJourneyLocationAndRestoreMessenger } from '@/utils/locationOwnershipHandoff';
 import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
@@ -202,6 +207,10 @@ export function useOperatorTrackingSession() {
     bufferRef.current = [];
   }, []);
 
+  useEffect(() => {
+    return registerForegroundCaptureStopper(stopWatch);
+  }, [stopWatch]);
+
   const stopOperatorBackground = useCallback(async () => {
     await stopOperatorTrackingAsync();
     operatorBgActiveRef.current = false;
@@ -236,6 +245,7 @@ export function useOperatorTrackingSession() {
   }, [resetInactiveSessionState, stopWatch]);
 
   const flushBuffer = useCallback(async (sessionId: string) => {
+    if (isNewOperatorObservationBlocked()) return;
     if (operatorBgActiveRef.current) {
       bufferRef.current = [];
       return;
@@ -344,6 +354,7 @@ export function useOperatorTrackingSession() {
           distanceInterval: WATCH_DISTANCE_INTERVAL_M,
         },
         (update) => {
+          if (isNewOperatorObservationBlocked()) return;
           const sid = sessionIdRef.current;
           if (!sid) return;
 
@@ -428,7 +439,7 @@ export function useOperatorTrackingSession() {
       }
 
       if (!user || !isStoredTrackingSessionOwnedByUser(local, user)) {
-        await clearActiveTrackingSession('owner_mismatch');
+        await preserveForeignTrackingSession();
         stopWatch();
         resetInactiveSessionState();
         return;
@@ -702,6 +713,10 @@ export function useOperatorTrackingSession() {
     stopWatch();
     await cleanupLocalTrackingSession('capture_closed', { pendingQueuePolicy });
     resetInactiveSessionState();
+    // Task Operator ya detenida y sesión local ya limpiada. No arranca
+    // Messenger BG aquí: el coordinador restaura solo si el último pedido
+    // fue ASSIGNED o IN_SERVICE.
+    await releaseJourneyLocationAndRestoreMessenger();
   }, [resetInactiveSessionState, stopOperatorBackground, stopWatch]);
 
   const endCapture = useCallback(async (): Promise<string | null> => {

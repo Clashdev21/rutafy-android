@@ -3,8 +3,14 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
 import { TASK_NAME } from '@/services/backgroundLocationTask';
+import { isMessengerBackgroundRestoreBlocked } from '@/utils/authLossCaptureGate';
+import {
+  isJourneyCaptureOwningLocation,
+  logLocationOwnership,
+} from '@/utils/locationOwnershipState';
 
 let lastSyncedEnabled: boolean | null = null;
+let lastRequestedEnabled: boolean | null = null;
 let isSyncing = false;
 
 function isTaskNotFoundError(error: unknown): boolean {
@@ -43,20 +49,20 @@ export async function requestBackgroundLocationPermissionWithRationale(): Promis
 
     if (Platform.OS !== 'android') return true;
 
-    const accepted = await showBackgroundRationaleAlert();
-    if (!accepted) {
-      if (__DEV__) {
-        console.log('[bg-location-permission]', { stage: 'rationale', accepted: false });
-      }
-      return false;
-    }
-
     const bg = await Location.getBackgroundPermissionsAsync();
     if (bg.status === 'granted') {
       if (__DEV__) {
         console.log('[bg-location-permission]', { stage: 'background', status: bg.status });
       }
       return true;
+    }
+
+    const accepted = await showBackgroundRationaleAlert();
+    if (!accepted) {
+      if (__DEV__) {
+        console.log('[bg-location-permission]', { stage: 'rationale', accepted: false });
+      }
+      return false;
     }
 
     const bgReq = await Location.requestBackgroundPermissionsAsync();
@@ -76,6 +82,12 @@ export async function startBackgroundLocationForActiveService(): Promise<boolean
       task: TASK_NAME,
     });
   }
+  if (isMessengerBackgroundRestoreBlocked()) {
+    return false;
+  }
+  if (await isJourneyCaptureOwningLocation()) {
+    return false;
+  }
   const isDefined = TaskManager.isTaskDefined(TASK_NAME);
   if (!isDefined) {
     console.warn('[bg-location-start-error]', { reason: 'task_not_defined', task: TASK_NAME });
@@ -84,6 +96,9 @@ export async function startBackgroundLocationForActiveService(): Promise<boolean
 
   const hasPermission = await requestBackgroundLocationPermissionWithRationale();
   if (!hasPermission) return false;
+  if (await isJourneyCaptureOwningLocation()) {
+    return false;
+  }
 
   try {
     const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(
@@ -91,6 +106,7 @@ export async function startBackgroundLocationForActiveService(): Promise<boolean
     );
     if (alreadyStarted) {
       console.log('[bg-location-start]', { started: true, alreadyStarted: true });
+      logLocationOwnership('LOCATION_OWNER', { owner: 'messenger' });
       return true;
     }
 
@@ -105,8 +121,16 @@ export async function startBackgroundLocationForActiveService(): Promise<boolean
       },
     });
 
+    if (await isJourneyCaptureOwningLocation()) {
+      await stopBackgroundLocation();
+      return false;
+    }
+
     const started = await Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(() => false);
     console.log('[bg-location-start]', { started, task: TASK_NAME });
+    if (started) {
+      logLocationOwnership('LOCATION_OWNER', { owner: 'messenger' });
+    }
     return started;
   } catch (error) {
     console.warn('[bg-location-start-error]', error);
@@ -153,12 +177,58 @@ export async function stopBackgroundLocation(): Promise<void> {
   }
 }
 
+export function noteBackgroundTrackingExternallyStopped(): void {
+  if (lastSyncedEnabled === true) {
+    lastSyncedEnabled = null;
+  }
+}
+
+export function suppressMessengerBackgroundRestore(): void {
+  lastRequestedEnabled = false;
+  if (lastSyncedEnabled === true) {
+    lastSyncedEnabled = null;
+  }
+}
+
+export function getLastRequestedBackgroundTrackingEnabled(): boolean | null {
+  return lastRequestedEnabled;
+}
+
+export async function restoreBackgroundTrackingIfRequested(): Promise<boolean> {
+  if (lastRequestedEnabled !== true) return false;
+  if (isMessengerBackgroundRestoreBlocked()) return false;
+  lastSyncedEnabled = null;
+  await syncBackgroundTracking(true);
+  return Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(() => false);
+}
+
+export function resetBackgroundTrackingSyncForTests(): void {
+  lastSyncedEnabled = null;
+  lastRequestedEnabled = null;
+  isSyncing = false;
+}
+
 export async function syncBackgroundTracking(enabled: boolean): Promise<void> {
+  if (enabled && isMessengerBackgroundRestoreBlocked()) {
+    suppressMessengerBackgroundRestore();
+    await stopBackgroundLocation();
+    return;
+  }
+  lastRequestedEnabled = enabled;
   console.log('[bg-sync-call]', {
     enabled,
     lastSyncedEnabled,
     isSyncing,
   });
+
+  if (enabled && (await isJourneyCaptureOwningLocation())) {
+    if (lastSyncedEnabled === true) {
+      lastSyncedEnabled = null;
+    }
+    await stopBackgroundLocation();
+    return;
+  }
+
   if (lastSyncedEnabled === enabled) return;
   if (isSyncing) return;
 
