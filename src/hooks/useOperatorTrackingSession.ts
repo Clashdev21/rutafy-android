@@ -70,6 +70,10 @@ import {
 } from '@/utils/operatorIngestionCoordinator';
 import { recordOperatorForegroundIngestionError } from '@/utils/operatorIngestionObservability';
 import { releaseJourneyLocationAndRestoreMessenger } from '@/utils/locationOwnershipHandoff';
+import {
+  admitQueueProvenance,
+  QUEUE_ADMISSION_FOREGROUND,
+} from '@/utils/temporalProvenance';
 import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
@@ -396,7 +400,9 @@ export function useOperatorTrackingSession() {
 
             for (const point of ingestion.points) {
               recordTrackingDiagnostic('gps-fix-received', gpsDetailFromPoint(point), sid);
-              bufferRef.current.push(point);
+              bufferRef.current.push(
+                admitQueueProvenance(point, QUEUE_ADMISSION_FOREGROUND),
+              );
             }
             recordTrackingDiagnostic(
               'point-buffered',

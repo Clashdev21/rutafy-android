@@ -13,6 +13,7 @@ import type {
   TrackingSessionStatus,
 } from '@/types/tracking';
 import { currentIdentityMayUploadOperatorSession } from '@/utils/authLossCaptureGate';
+import { buildTrackingPointsBatchRequest } from '@/utils/temporalProvenance';
 
 function pickStr(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -186,9 +187,10 @@ export async function sendTrackingPointsBatch(
   if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
     throw new Error('auth_loss_quiesced');
   }
-  const { data } = await apiClient.post(TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId), {
-    points,
-  });
+  const { data } = await apiClient.post(
+    TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId),
+    buildTrackingPointsBatchRequest(points),
+  );
   const row = data as Record<string, unknown> | null;
   const accepted =
     typeof row?.accepted === 'number'

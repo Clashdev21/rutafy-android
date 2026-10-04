@@ -54,6 +54,7 @@ import {
 import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { buildTraceId } from '@/utils/traceId';
+import { buildTrackingPointsBatchRequest } from '@/utils/temporalProvenance';
 
 /** Task de ubicación en segundo plano para captura logística (separada del mensajero). */
 export const OPERATOR_TRACKING_TASK_NAME = 'rutafy-operator-tracking';
@@ -291,7 +292,7 @@ async function executeBatchPost(
         installationId,
         traceId: buildTraceId('operator-bg-batch'),
       }),
-      body: JSON.stringify({ points }),
+      body: JSON.stringify(buildTrackingPointsBatchRequest(points)),
       signal: controller.signal,
     });
   } catch (e) {

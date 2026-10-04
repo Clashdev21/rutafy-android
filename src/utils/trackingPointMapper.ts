@@ -10,6 +10,13 @@ import {
   type SessionFixTemporalReason,
 } from '@/utils/trackingTemporalGuard';
 import { observeTrackingPipelineFromPoint } from '@/utils/trackingPipelineObserver';
+import { createTechnicalUuid } from '@/utils/technicalUuid';
+import {
+  MEASUREMENT_SOURCE_FALLBACK,
+  MEASUREMENT_SOURCE_NATIVE,
+  withObservationTemporal,
+  type CallbackProvenanceInput,
+} from '@/utils/temporalProvenance';
 
 type CoordsLike = {
   latitude?: number;
@@ -60,7 +67,11 @@ export function mapTrackingPointPure(
   location: LocationLike | LocationObject,
   appState: TrackingPointAppState,
   metadata: Record<string, unknown> | undefined,
-  sessionContext?: { sessionStartedAtMs?: number | null; nowMs?: number },
+  sessionContext?: {
+    sessionStartedAtMs?: number | null;
+    nowMs?: number;
+    callback?: CallbackProvenanceInput;
+  },
 ): MapTrackingPointPureResult {
   const coords = location.coords;
   const lat = coords?.latitude;
@@ -98,23 +109,42 @@ export function mapTrackingPointPure(
     temporalReason = validity.reason;
   }
 
+  const nativeTimestampValid = capturedAtMs != null;
   const timestamp = capturedAtMs ?? nowMs;
+  const capturedAt = new Date(timestamp).toISOString();
   const speed = coords?.speed;
   const heading = coords?.heading;
+  const callback = sessionContext?.callback;
 
   // TrackingPointInput / backend payload — contrato original intacto.
   // speed_mps conserva el valor nativo en m/s: nunca derived/effective.
+  // measurement_at solo existe cuando el timestamp nativo es válido; el fallback
+  // no inventa un instante de medición.
   const point: TrackingPointInput = {
     lat: lat as number,
     lng: lng as number,
-    captured_at: new Date(timestamp).toISOString(),
+    captured_at: capturedAt,
     accuracy_m:
       coords?.accuracy != null && Number.isFinite(coords.accuracy) ? coords.accuracy : null,
     speed_mps: speed != null && Number.isFinite(speed) && speed >= 0 ? speed : null,
     heading: heading != null && Number.isFinite(heading) && heading >= 0 ? heading : null,
     battery_level: null,
     app_state: appState,
-    metadata,
+    fix_id: createTechnicalUuid(),
+    metadata: withObservationTemporal(metadata, {
+      measurement_at: nativeTimestampValid ? capturedAt : null,
+      measurement_timestamp_source: nativeTimestampValid
+        ? MEASUREMENT_SOURCE_NATIVE
+        : MEASUREMENT_SOURCE_FALLBACK,
+      ...(callback
+        ? {
+            callback_at: callback.callback_at,
+            callback_batch_id: callback.callback_batch_id,
+            callback_index: callback.callback_index,
+            callback_size: callback.callback_size,
+          }
+        : {}),
+    }),
   };
 
   const locationTimestampMs =

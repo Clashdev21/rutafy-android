@@ -32,6 +32,8 @@ import {
   runOnOperatorIngestionChain,
 } from '@/utils/operatorIngestionChain';
 import { resolveOperatorIngestionRole } from '@/utils/operatorIngestionOwnership';
+import { createTechnicalUuid } from '@/utils/technicalUuid';
+import { utcIso, type CallbackProvenanceInput } from '@/utils/temporalProvenance';
 import {
   mapTrackingPointPure,
   observeAuthoritativeTrackingPoint,
@@ -140,17 +142,27 @@ function toCandidates(
   metadata: Record<string, unknown> | undefined,
   sessionStartedAtMs: number | null,
   nowMs: number,
+  callback: { callback_at: string; callback_batch_id: string; callback_size: number } | null,
 ): { candidates: MappedCandidate[]; invalidRejections: OperatorMapRejection[] } {
   const appState: TrackingPointAppState = channel;
   const candidates: MappedCandidate[] = [];
   const invalidRejections: OperatorMapRejection[] = [];
 
-  for (const location of locations) {
+  for (let index = 0; index < locations.length; index += 1) {
+    const location = locations[index];
+    const callbackInput: CallbackProvenanceInput | undefined = callback
+      ? {
+          callback_at: callback.callback_at,
+          callback_batch_id: callback.callback_batch_id,
+          callback_index: index,
+          callback_size: callback.callback_size,
+        }
+      : undefined;
     const mapped = mapTrackingPointPure(
       location as Parameters<typeof mapTrackingPointPure>[0],
       appState,
       metadata,
-      { sessionStartedAtMs, nowMs },
+      { sessionStartedAtMs, nowMs, callback: callbackInput },
     );
     if (!mapped.ok) {
       invalidRejections.push({
@@ -202,6 +214,14 @@ function runIngestionCycle(input: IngestOperatorLocationsInput): IngestOperatorL
   const role = input.role ?? resolveOperatorIngestionRole(input.channel);
   const nowMs = input.nowMs ?? Date.now();
   const locations = Array.isArray(input.locations) ? input.locations : [];
+  const callback =
+    locations.length === 0
+      ? null
+      : {
+          callback_at: utcIso(nowMs),
+          callback_batch_id: createTechnicalUuid(),
+          callback_size: locations.length,
+        };
 
   ensureSessionBinding(sessionId);
 
@@ -211,6 +231,7 @@ function runIngestionCycle(input: IngestOperatorLocationsInput): IngestOperatorL
     input.metadata,
     input.sessionStartedAtMs ?? null,
     nowMs,
+    callback,
   );
   const invalid = invalidRejections.length;
 

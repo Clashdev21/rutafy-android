@@ -27,6 +27,7 @@
     "scripts/test-operator-network-n1.ts",
     "scripts/test-app-identity.ts",
     "scripts/test-location-ownership-handoff.ts",
+    "scripts/test-temporal-provenance.ts",
     "scripts/test-auth-loss-location.ts"
   ]
 }

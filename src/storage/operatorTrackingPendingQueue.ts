@@ -12,9 +12,14 @@ import type { TrackingPointInput } from '@/types/tracking';
 import {
   MAX_OPERATOR_PENDING_POINTS,
   mergePendingPoints,
+  pointDedupeKey,
   requeueFailedBatch,
   takePendingBatch,
 } from '@/utils/operatorTrackingPendingQueueLogic';
+import {
+  admitQueueProvenance,
+  QUEUE_ADMISSION_DURABLE,
+} from '@/utils/temporalProvenance';
 
 const QUEUE_KEY = 'rutafy_operator_tracking_pending_points';
 
@@ -86,6 +91,7 @@ export const operatorTrackingPendingQueue = {
   async enqueue(
     sessionId: string,
     incoming: TrackingPointInput[],
+    options?: { nowMs?: number },
   ): Promise<{
     added: number;
     duplicatesSkipped: number;
@@ -104,8 +110,14 @@ export const operatorTrackingPendingQueue = {
       const existing =
         state && state.sessionId === sessionId ? state.points : [];
 
+      const existingKeys = new Set(existing.map(pointDedupeKey));
       const merged = mergePendingPoints(existing, incoming, MAX_OPERATOR_PENDING_POINTS);
-      await writeStateUnlocked({ sessionId, points: merged.points });
+      const nowMs = options?.nowMs ?? Date.now();
+      const points = merged.points.map((point) => {
+        if (existingKeys.has(pointDedupeKey(point))) return point;
+        return admitQueueProvenance(point, QUEUE_ADMISSION_DURABLE, nowMs);
+      });
+      await writeStateUnlocked({ sessionId, points });
       return {
         added: merged.added,
         duplicatesSkipped: merged.duplicatesSkipped,
