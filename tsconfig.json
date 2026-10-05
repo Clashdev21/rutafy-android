@@ -29,6 +29,7 @@
     "scripts/test-location-ownership-handoff.ts",
     "scripts/test-temporal-provenance.ts",
     "scripts/test-request-provenance.ts",
+    "scripts/test-native-quality.ts",
     "scripts/test-auth-loss-location.ts"
   ]
 }

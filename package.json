@@ -42,6 +42,7 @@
   "devDependencies": {
     "@expo/ngrok": "^4.1.3",
     "@types/react": "~19.2.2",
+    "patch-package": "^8.0.1",
     "sharp": "^0.34.2",
     "typescript": "~6.0.3"
   },
@@ -62,7 +63,19 @@
     "test:location-handoff": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-location-ownership-handoff.ts",
     "test:temporal-provenance": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-temporal-provenance.ts",
     "test:request-provenance": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-request-provenance.ts",
+    "test:native-quality": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-native-quality.ts",
+    "test:native-quality-patch": "node scripts/verify-native-quality-patch.js",
+    "postinstall": "patch-package && node scripts/verify-native-quality-patch.js",
     "test:auth-loss": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-auth-loss-location.ts"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-location"
+        ]
+      }
+    }
+  }
 }

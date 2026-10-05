@@ -10,6 +10,7 @@ import {
   type SessionFixTemporalReason,
 } from '@/utils/trackingTemporalGuard';
 import { observeTrackingPipelineFromPoint } from '@/utils/trackingPipelineObserver';
+import { readNativeQualityV1 } from '@/utils/nativeQuality';
 import { createTechnicalUuid } from '@/utils/technicalUuid';
 import {
   MEASUREMENT_SOURCE_FALLBACK,
@@ -131,20 +132,26 @@ export function mapTrackingPointPure(
     battery_level: null,
     app_state: appState,
     fix_id: createTechnicalUuid(),
-    metadata: withObservationTemporal(metadata, {
-      measurement_at: nativeTimestampValid ? capturedAt : null,
-      measurement_timestamp_source: nativeTimestampValid
-        ? MEASUREMENT_SOURCE_NATIVE
-        : MEASUREMENT_SOURCE_FALLBACK,
-      ...(callback
-        ? {
-            callback_at: callback.callback_at,
-            callback_batch_id: callback.callback_batch_id,
-            callback_index: callback.callback_index,
-            callback_size: callback.callback_size,
-          }
-        : {}),
-    }),
+    metadata: withObservationTemporal(
+      {
+        ...(metadata ?? {}),
+        native_quality: readNativeQualityV1(location),
+      },
+      {
+        measurement_at: nativeTimestampValid ? capturedAt : null,
+        measurement_timestamp_source: nativeTimestampValid
+          ? MEASUREMENT_SOURCE_NATIVE
+          : MEASUREMENT_SOURCE_FALLBACK,
+        ...(callback
+          ? {
+              callback_at: callback.callback_at,
+              callback_batch_id: callback.callback_batch_id,
+              callback_index: callback.callback_index,
+              callback_size: callback.callback_size,
+            }
+          : {}),
+      },
+    ),
   };
 
   const locationTimestampMs =
