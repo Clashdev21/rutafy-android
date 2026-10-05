@@ -34,8 +34,9 @@ import {
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { operatorCaptureConsentStorage } from '@/storage/operatorCaptureConsentStorage';
-import { mensajeroBootstrapStorage } from '@/storage/mensajeroBootstrapStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import { syncMensajeroOperationalBootstrap } from '@/services/mensajeroBootstrapRuntime';
+import { resolveManualStartAfterBootstrap } from '@/utils/mensajeroBootstrapCoordinator';
 import type {
   StoredTrackingSession,
   TrackingPointInput,
@@ -626,14 +627,32 @@ export function useOperatorTrackingSession() {
 
       await assertCanStartOperatorCapture(actorId, appRole);
 
-      const persistedBootstrap = await mensajeroBootstrapStorage.get(user.user_id);
+      const readiness = await resolveManualStartAfterBootstrap({
+        awaitSettledBootstrap: () =>
+          syncMensajeroOperationalBootstrap({
+            user,
+            source: 'refresh',
+            force: true,
+          }),
+        getOwnedLocalSessionId: async () => {
+          const local = await trackingSessionStorage.getActive();
+          if (!local || !isStoredTrackingSessionOwnedByUser(local, user)) return null;
+          return local.sessionId;
+        },
+      });
+      if (readiness.status === 'active_session') {
+        setError('Ya hay una captura logística activa.');
+        await hydrateFromStorage();
+        return;
+      }
+
       const params = buildTrackingStartParams({
         purpose,
         vehicleLabel: label,
         consentAccepted: true,
         notes: notes.trim() || undefined,
         existingMetadata: { source: 'android_mvp' },
-        journeyId: persistedBootstrap?.journeyId,
+        journeyId: readiness.journeyId,
       });
       if ('error' in params) {
         setError(

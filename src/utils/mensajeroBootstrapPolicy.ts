@@ -204,3 +204,47 @@ export function decideMensajeroBootstrapApply(input: {
   // NONE + capture_should_stop false: no start, no wipe recovery.
   return { type: 'noop' };
 }
+
+/**
+ * Autorización efímera de un start nuevo. No lee SecureStore.
+ * Errores de red, auth o degradación conservan el valor de este proceso.
+ * NONE, CONFLICT, PENDING_ASSIGNMENT, stop y CAPTURE_ACTIVE lo dejan en null.
+ * Un noop de CAPTURE_REQUIRED con journey presente (start ya en curso) no lo borra.
+ */
+export function nextAuthorizedStartJourneyId(
+  current: string | null,
+  decision: MensajeroBootstrapDecision,
+  bootstrap: OperationalBootstrapResponse | null,
+): string | null {
+  if (
+    decision.type === 'preserve_offline' ||
+    decision.type === 'auth_error' ||
+    decision.type === 'degrade'
+  ) {
+    return current;
+  }
+
+  if (
+    decision.type === 'start' ||
+    decision.type === 'consent_required' ||
+    decision.type === 'capture_pending'
+  ) {
+    const id = decision.journeyId.trim();
+    return id || null;
+  }
+
+  if (decision.type === 'noop' && bootstrap?.action === 'CAPTURE_REQUIRED') {
+    const fresh = bootstrap.journey?.journey_id?.trim() ?? '';
+    if (!fresh) return null;
+    return current;
+  }
+
+  return null;
+}
+
+/** El start manual solo puede proponer este id. Nunca el journeyId persistido. */
+export function journeyIdForManualStart(authorizedStartJourneyId: string | null): string | null {
+  if (typeof authorizedStartJourneyId !== 'string') return null;
+  const id = authorizedStartJourneyId.trim();
+  return id || null;
+}

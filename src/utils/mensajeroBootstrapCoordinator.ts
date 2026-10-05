@@ -6,6 +6,8 @@ import {
   bootstrapNoticeForDecision,
   classifyBootstrapFetchError,
   decideMensajeroBootstrapApply,
+  journeyIdForManualStart,
+  nextAuthorizedStartJourneyId,
   nextBootstrapSnapshot,
   type MensajeroBootstrapDecision,
 } from './mensajeroBootstrapPolicy.ts';
@@ -89,6 +91,50 @@ export function createBootstrapSingleFlight(debounceMs = MENSAJERO_BOOTSTRAP_DEB
 
 export const mensajeroBootstrapSingleFlight = createBootstrapSingleFlight();
 
+let authorizedStartJourneyId: string | null = null;
+
+export function getAuthorizedStartJourneyId(): string | null {
+  return authorizedStartJourneyId;
+}
+
+export function resetAuthorizedStartJourneyId(): void {
+  authorizedStartJourneyId = null;
+}
+
+function publishAuthorizedStartJourneyId(
+  decision: MensajeroBootstrapDecision,
+  bootstrap: OperationalBootstrapResponse | null,
+): void {
+  authorizedStartJourneyId = nextAuthorizedStartJourneyId(
+    authorizedStartJourneyId,
+    decision,
+    bootstrap,
+  );
+}
+
+export type ManualStartReadiness =
+  | { status: 'active_session'; sessionId: string }
+  | { status: 'ready'; journeyId: string | null };
+
+/**
+ * Espera el bootstrap ya en curso y solo entonces lee la autorización en memoria.
+ * No consulta SecureStore y no abre otro ciclo distinto del que recibe.
+ */
+export async function resolveManualStartAfterBootstrap(input: {
+  awaitSettledBootstrap: () => Promise<unknown>;
+  getOwnedLocalSessionId: () => Promise<string | null>;
+}): Promise<ManualStartReadiness> {
+  await input.awaitSettledBootstrap();
+  const sessionId = (await input.getOwnedLocalSessionId())?.trim() || '';
+  if (sessionId) {
+    return { status: 'active_session', sessionId };
+  }
+  return {
+    status: 'ready',
+    journeyId: journeyIdForManualStart(authorizedStartJourneyId),
+  };
+}
+
 export async function runOperationalBootstrapCycle(
   deps: BootstrapCycleDeps,
 ): Promise<BootstrapCycleResult> {
@@ -153,6 +199,8 @@ export async function runOperationalBootstrapCycle(
   if (stopResult !== 'preserved_offline') {
     await deps.persist(snapshot);
   }
+
+  publishAuthorizedStartJourneyId(decision, bootstrap);
 
   return {
     decision,

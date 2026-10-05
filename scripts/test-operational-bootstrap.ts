@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 import axios from 'axios';
 
 import { parseOperationalBootstrapResponse } from '../src/utils/operationalBootstrapParse.ts';
@@ -20,10 +20,15 @@ import {
   bootstrapNoticeForDecision,
   classifyBootstrapFetchError,
   decideMensajeroBootstrapApply,
+  journeyIdForManualStart,
+  nextAuthorizedStartJourneyId,
   nextBootstrapSnapshot,
 } from '../src/utils/mensajeroBootstrapPolicy.ts';
 import {
   createBootstrapSingleFlight,
+  getAuthorizedStartJourneyId,
+  resetAuthorizedStartJourneyId,
+  resolveManualStartAfterBootstrap,
   runOperationalBootstrapCycle,
   type BootstrapCycleDeps,
 } from '../src/utils/mensajeroBootstrapCoordinator.ts';
@@ -892,5 +897,308 @@ describe('snapshot persistido', () => {
     ]);
     assert.equal(snapshot.journeyId, 'J-1');
     assert.equal(JSON.stringify(snapshot).includes('@'), false);
+  });
+});
+
+const OLD_RECOVERY = {
+  journeyId: 'old-j',
+  trackingSessionId: 'old-s',
+  lastBootstrapAction: 'CAPTURE_ACTIVE' as const,
+  lastBootstrapAt: '2026-09-11T08:00:00.000Z',
+};
+
+describe('authorized start desacoplado del recovery', () => {
+  beforeEach(() => {
+    resetAuthorizedStartJourneyId();
+  });
+
+  it('NONE conserva old-j y deja la autorización de start en null', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => sampleBootstrap(),
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'noop');
+    assert.equal(result.snapshot.journeyId, 'old-j');
+    assert.equal(getAuthorizedStartJourneyId(), null);
+    assert.equal(deps.calls.start, 0);
+  });
+
+  it('CAPTURE_REQUIRED start publica J-1', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'start');
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+  });
+
+  it('CAPTURE_REQUIRED consent_required publica J-1', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+      hasConsent: async () => false,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'consent_required');
+    assert.equal(deps.calls.start, 0);
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+  });
+
+  it('CAPTURE_REQUIRED capture_pending publica J-1', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+      canStartOperatorGps: async () => false,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'capture_pending');
+    assert.equal(deps.calls.start, 0);
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+  });
+
+  it('CONFLICT limpia la autorización y no copia old-j', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () =>
+        sampleBootstrap({
+          action: 'CONFLICT',
+          reason: 'MULTIPLE_ACTIVE_JOURNEYS',
+          conflict_journey_ids: ['J-a', 'J-b'],
+        }),
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'conflict');
+    assert.equal(result.snapshot.journeyId, 'old-j');
+    assert.equal(getAuthorizedStartJourneyId(), null);
+  });
+
+  it('PENDING_ASSIGNMENT limpia la autorización y no copia old-j', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () =>
+        sampleBootstrap({
+          action: 'PENDING_ASSIGNMENT',
+          reason: 'NO_PLATE',
+        }),
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'pending_assignment');
+    assert.equal(result.snapshot.journeyId, 'old-j');
+    assert.equal(getAuthorizedStartJourneyId(), null);
+  });
+
+  it('un proceso nuevo offline no reconstruye autorización desde old-j', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => {
+        throw new axios.AxiosError('Network Error', 'ERR_NETWORK');
+      },
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const result = await runOperationalBootstrapCycle(deps);
+    assert.equal(result.decision.type, 'preserve_offline');
+    assert.equal(result.snapshot.journeyId, 'old-j');
+    assert.equal(getAuthorizedStartJourneyId(), null);
+  });
+
+  it('un error transitorio conserva la autorización fresca de este proceso', async () => {
+    let fail = false;
+    const deps = makeDeps({
+      fetchBootstrap: async () => {
+        if (fail) throw httpError(503, { error: 'unavailable' });
+        return captureRequired();
+      },
+      hasConsent: async () => false,
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const first = await runOperationalBootstrapCycle(deps);
+    assert.equal(first.decision.type, 'consent_required');
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+    fail = true;
+    const second = await runOperationalBootstrapCycle(deps);
+    assert.equal(second.decision.type, 'preserve_offline');
+    assert.equal(second.snapshot.journeyId, 'old-j');
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+  });
+
+  it('el start manual no copia old-j si la autorización en memoria es null', () => {
+    const snapshotJourneyId = 'old-j';
+    const journeyId = journeyIdForManualStart(getAuthorizedStartJourneyId());
+    assert.equal(journeyId, null);
+    assert.notEqual(journeyId, snapshotJourneyId);
+    const params = buildTrackingStartParams({
+      vehicleLabel: 'ABC123',
+      consentAccepted: true,
+      existingMetadata: { source: 'android_mvp' },
+      journeyId,
+    });
+    assert.equal('error' in params, false);
+    if (!('error' in params)) {
+      assert.equal(params.metadata?.source, 'android_mvp');
+      assert.equal(params.metadata?.journey_id, undefined);
+    }
+  });
+
+  it('el start manual envía J-1 solo cuando el bootstrap fresco lo publicó', async () => {
+    const deps = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+      hasConsent: async () => false,
+    });
+    await runOperationalBootstrapCycle(deps);
+    const journeyId = journeyIdForManualStart(getAuthorizedStartJourneyId());
+    const params = buildTrackingStartParams({
+      vehicleLabel: 'ABC123',
+      consentAccepted: true,
+      existingMetadata: { source: 'android_mvp' },
+      journeyId,
+    });
+    assert.equal('error' in params, false);
+    if (!('error' in params)) {
+      assert.equal(params.metadata?.journey_id, 'J-1');
+      assert.equal(params.metadata?.source, 'android_mvp');
+    }
+  });
+
+  it('sin journey el start genérico sigue siendo válido', () => {
+    const params = buildTrackingStartParams({
+      vehicleLabel: 'ABC123',
+      consentAccepted: true,
+      existingMetadata: { source: 'android_mvp' },
+    });
+    assert.equal('error' in params, false);
+    if (!('error' in params)) {
+      assert.equal(params.metadata?.journey_id, undefined);
+      assert.equal(params.metadata?.source, 'android_mvp');
+      assert.equal(params.consent_accepted, true);
+      assert.equal(params.vehicle_label, 'ABC123');
+    }
+  });
+
+  it('CAPTURE_ACTIVE no publica autorización para otro start', async () => {
+    const seeding = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+      hasConsent: async () => false,
+    });
+    await runOperationalBootstrapCycle(seeding);
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+
+    const active = makeDeps({
+      fetchBootstrap: async () =>
+        sampleBootstrap({
+          action: 'CAPTURE_ACTIVE',
+          reason: 'CAPTURE_ALREADY_ACTIVE',
+          journey: { journey_id: 'J-1' },
+          tracking: { active: true, tracking_session_id: 'sess-9' },
+        }),
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const result = await runOperationalBootstrapCycle(active);
+    assert.equal(result.decision.type, 'hydrate');
+    assert.equal(active.calls.start, 0);
+    assert.equal(getAuthorizedStartJourneyId(), null);
+  });
+
+  it('JOURNEY_COMPLETED deja la autorización de un start nuevo en null', async () => {
+    const seeding = makeDeps({
+      fetchBootstrap: async () => captureRequired(),
+      hasConsent: async () => false,
+    });
+    await runOperationalBootstrapCycle(seeding);
+    assert.equal(getAuthorizedStartJourneyId(), 'J-1');
+
+    const completed = makeDeps({
+      fetchBootstrap: async () =>
+        sampleBootstrap({
+          action: 'NONE',
+          reason: 'JOURNEY_COMPLETED',
+          capture_should_stop: true,
+          journey: { journey_id: 'J-1' },
+          tracking: { active: true, tracking_session_id: 'sess-9' },
+        }),
+      getLocalSessionId: async () => 'sess-9',
+    });
+    const result = await runOperationalBootstrapCycle(completed);
+    assert.equal(result.decision.type, 'stop');
+    assert.equal(getAuthorizedStartJourneyId(), null);
+  });
+
+  it('el start manual espera el bootstrap en vuelo y no usa old-j', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionRead = false;
+    let fetchCount = 0;
+    const flight = createBootstrapSingleFlight(2_500);
+    const deps = makeDeps({
+      fetchBootstrap: async () => {
+        fetchCount += 1;
+        await gate;
+        return sampleBootstrap();
+      },
+      getPersisted: async () => OLD_RECOVERY,
+    });
+    const inflight = flight.run({ force: true, now: 50_000 }, () =>
+      runOperationalBootstrapCycle(deps),
+    );
+    const pending = resolveManualStartAfterBootstrap({
+      awaitSettledBootstrap: () =>
+        flight.run({ force: true, now: 50_000 }, () => runOperationalBootstrapCycle(deps)),
+      getOwnedLocalSessionId: async () => {
+        sessionRead = true;
+        return null;
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(sessionRead, false);
+    assert.equal(fetchCount, 1);
+    release();
+    const readiness = await pending;
+    await inflight;
+    assert.equal(readiness.status, 'ready');
+    if (readiness.status === 'ready') {
+      assert.equal(readiness.journeyId, null);
+    }
+    assert.equal(getAuthorizedStartJourneyId(), null);
+  });
+
+  it('si durante la espera aparece una sesión activa no prepara otro start', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const flight = createBootstrapSingleFlight(2_500);
+    const deps = makeDeps({
+      fetchBootstrap: async () => {
+        await gate;
+        return sampleBootstrap();
+      },
+    });
+    const inflight = flight.run({ force: true, now: 60_000 }, () =>
+      runOperationalBootstrapCycle(deps),
+    );
+    const pending = resolveManualStartAfterBootstrap({
+      awaitSettledBootstrap: () =>
+        flight.run({ force: true, now: 60_000 }, () => runOperationalBootstrapCycle(deps)),
+      getOwnedLocalSessionId: async () => 'sess-during-wait',
+    });
+    release();
+    const readiness = await pending;
+    await inflight;
+    assert.deepEqual(readiness, { status: 'active_session', sessionId: 'sess-during-wait' });
+    assert.equal(deps.calls.start, 0);
+  });
+
+  it('la función pura no adopta un id distinto del que ya está en memoria', () => {
+    assert.equal(
+      nextAuthorizedStartJourneyId(null, { type: 'preserve_offline' }, null),
+      null,
+    );
+    assert.equal(
+      nextAuthorizedStartJourneyId('J-1', { type: 'preserve_offline' }, null),
+      'J-1',
+    );
+    assert.equal(
+      nextAuthorizedStartJourneyId('J-1', { type: 'conflict' }, null),
+      null,
+    );
   });
 });
