@@ -74,6 +74,7 @@ import {
   admitQueueProvenance,
   QUEUE_ADMISSION_FOREGROUND,
 } from '@/utils/temporalProvenance';
+import { TRACKING_REQUEST_SOURCE } from '@/types/trackingRequestSource';
 import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
@@ -82,7 +83,10 @@ import { startMotionTelemetryForSession } from '@/services/motionTelemetryServic
 const BATCH_FLUSH_MS = 12000;
 const WATCH_TIME_INTERVAL_MS = 20000;
 const WATCH_DISTANCE_INTERVAL_M = 10;
-const FG_POINT_METADATA = { source: 'android_mvp' as const };
+const FG_POINT_METADATA = {
+  source: 'android_mvp' as const,
+  request_source: TRACKING_REQUEST_SOURCE.operatorForegroundBalanced,
+};
 
 function shortSessionId(id: string): string {
   const compact = id.replace(/-/g, '');

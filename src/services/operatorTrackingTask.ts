@@ -54,6 +54,7 @@ import {
 import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { buildTraceId } from '@/utils/traceId';
+import { TRACKING_REQUEST_SOURCE } from '@/types/trackingRequestSource';
 import { buildTrackingPointsBatchRequest } from '@/utils/temporalProvenance';
 
 /** Task de ubicación en segundo plano para captura logística (separada del mensajero). */
@@ -69,7 +70,10 @@ export const OPERATOR_TRACKING_TASK_NAME = 'rutafy-operator-tracking';
  */
 export const OPERATOR_BATCH_HTTP_TIMEOUT_MS = 20_000;
 
-const BG_POINT_METADATA = { source: 'android_background' as const };
+const BG_POINT_METADATA = {
+  source: 'android_background' as const,
+  request_source: TRACKING_REQUEST_SOURCE.operatorBackgroundHigh,
+};
 /** Tamaño máximo por POST; la cola puede acumular más mientras hay batch en vuelo. */
 const BG_BATCH_MAX_POINTS = 25;
 

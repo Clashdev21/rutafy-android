@@ -61,6 +61,7 @@
     "test:app-identity": "node --experimental-strip-types --test scripts/test-app-identity.ts",
     "test:location-handoff": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-location-ownership-handoff.ts",
     "test:temporal-provenance": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-temporal-provenance.ts",
+    "test:request-provenance": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-request-provenance.ts",
     "test:auth-loss": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-auth-loss-location.ts"
   },
   "private": true
