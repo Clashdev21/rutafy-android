@@ -42,6 +42,10 @@ async function deleteItem(key: string): Promise<void> {
 }
 
 function randomDeviceId(): string {
+  const cryptoObj = globalThis.crypto;
+  if (typeof cryptoObj?.randomUUID === 'function') {
+    return cryptoObj.randomUUID();
+  }
   const hex = () =>
     Math.floor(Math.random() * 0xffffffff)
       .toString(16)
@@ -68,4 +72,9 @@ export async function getOrCreateDeviceId(): Promise<string> {
   const created = randomDeviceId();
   await setItem(DEVICE_ID_KEY, created);
   return created;
+}
+
+/** M1: misma instalación que `rutafy_device_id`. No es identidad de persona ni push token. */
+export async function getOrCreateInstallationId(): Promise<string> {
+  return getOrCreateDeviceId();
 }

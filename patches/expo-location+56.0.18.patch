@@ -1,0 +1,57 @@
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/records/LocationResults.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/records/LocationResults.kt
+index fa836b1..1952892 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/records/LocationResults.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/records/LocationResults.kt
+@@ -104,12 +104,37 @@ internal class HeadingEventResponse(
+ internal class LocationResponse(
+   @Field var coords: LocationObjectCoords? = null,
+   @Field var timestamp: Double? = null,
+-  @Field var mocked: Boolean? = null
++  @Field var mocked: Boolean? = null,
++  // TOv2-B: native quality from the same android.location.Location
++  @Field var hasAccuracy: Boolean? = null,
++  @Field var hasSpeed: Boolean? = null,
++  @Field var speedAccuracyMetersPerSecond: Double? = null,
++  @Field var hasBearing: Boolean? = null,
++  @Field var bearingAccuracyDegrees: Double? = null,
++  @Field var elapsedRealtimeNanos: String? = null
+ ) : Record, Serializable {
+   constructor(location: Location) : this(
+     coords = LocationObjectCoords(location),
+     timestamp = location.time.toDouble(),
+-    mocked = location.isFromMockProvider
++    mocked = location.isFromMockProvider,
++    hasAccuracy = location.hasAccuracy(),
++    hasSpeed = location.hasSpeed(),
++    speedAccuracyMetersPerSecond = if (
++      Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()
++    ) {
++      location.speedAccuracyMetersPerSecond.toDouble()
++    } else {
++      null
++    },
++    hasBearing = location.hasBearing(),
++    bearingAccuracyDegrees = if (
++      Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasBearingAccuracy()
++    ) {
++      location.bearingAccuracyDegrees.toDouble()
++    } else {
++      null
++    },
++    elapsedRealtimeNanos = location.elapsedRealtimeNanos.toString()
+   )
+ 
+   internal fun <BundleType : BaseBundle> toBundle(bundleTypeClass: Class<BundleType>): BundleType {
+@@ -122,6 +147,12 @@ internal class LocationResponse(
+     return bundle.apply {
+       timestamp?.let { putDouble("timestamp", it) }
+       mocked?.let { putBoolean("mocked", it) }
++      hasAccuracy?.let { putBoolean("hasAccuracy", it) }
++      hasSpeed?.let { putBoolean("hasSpeed", it) }
++      speedAccuracyMetersPerSecond?.let { putDouble("speedAccuracyMetersPerSecond", it) }
++      hasBearing?.let { putBoolean("hasBearing", it) }
++      bearingAccuracyDegrees?.let { putDouble("bearingAccuracyDegrees", it) }
++      elapsedRealtimeNanos?.let { putString("elapsedRealtimeNanos", it) }
+       if (bundle is PersistableBundle) {
+         (this as PersistableBundle).putPersistableBundle("coords", coords?.toBundle(PersistableBundle::class.java))
+       } else if (bundle is Bundle) {

@@ -13,6 +13,11 @@ import {
   type PushRegisterSource,
 } from '@/services/pushRegistration';
 import type { AuthUser, LoginCredentials, RegisterTransportistaPayload } from '@/types/auth';
+import {
+  adoptAuthenticatedIdentity,
+  dropAuthenticatedIdentity,
+} from '@/utils/authLossCaptureGate';
+import { stopLocationCaptureForAuthLoss } from '@/utils/authLossLocationShutdown';
 import { getApiErrorMessage } from '@/utils/errors';
 import {
   isConfirmedAuthInvalidError,
@@ -32,6 +37,14 @@ function logLogoutReason(reason: string, detail?: unknown): void {
   }
 }
 
+function adoptUser(user: AuthUser): void {
+  adoptAuthenticatedIdentity(user);
+}
+
+function dropUser(): void {
+  dropAuthenticatedIdentity();
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hasPersistedSession, setHasPersistedSession] = useState(false);
@@ -44,7 +57,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (__DEV__) {
       console.log('[auth-session-expired-confirmed]', { reason, detail });
     }
+    await stopLocationCaptureForAuthLoss();
     await tokenStorage.clearAll();
+    dropUser();
     setUser(null);
     setHasPersistedSession(false);
     setError(null);
@@ -60,6 +75,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const refresh = await tokenStorage.getRefreshToken();
 
       if (!access && !refresh) {
+        await stopLocationCaptureForAuthLoss();
+        dropUser();
         setUser(null);
         setHasPersistedSession(false);
         setError(null);
@@ -95,7 +112,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const me = await authService.fetchCurrentUser();
         if (!isMobileSupportedRole(me.appRole)) {
+          await stopLocationCaptureForAuthLoss();
           await authService.logout();
+          dropUser();
           setUser(null);
           setHasPersistedSession(false);
           setError('Este tipo de cuenta no está disponible en la app móvil.');
@@ -104,6 +123,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!isRestorableMobileUser(me)) {
           throw new Error('Sesión sin actor operativo válido');
         }
+        adoptUser(me);
         setUser(me);
         setError(null);
         void registerPushIfSessionReady(me, 'restore_session');
@@ -149,7 +169,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (__DEV__) {
           console.log('[auth-session-expired-confirmed]', { reason: 'session_expired_event' });
         }
+        await stopLocationCaptureForAuthLoss();
         await tokenStorage.clearAll();
+        dropUser();
         setUser(null);
         setHasPersistedSession(false);
         setError(null);
@@ -170,19 +192,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const finalizeAuthenticatedUser = useCallback(
     async (me: AuthUser, source: PushRegisterSource): Promise<AuthUser> => {
       if (!isMobileSupportedRole(me.appRole)) {
+        await stopLocationCaptureForAuthLoss();
         await authService.logout();
+        dropUser();
         setUser(null);
         setHasPersistedSession(false);
         setError('Este tipo de cuenta no está disponible en la app móvil.');
         throw new Error('ROLE_NOT_SUPPORTED');
       }
       if (!isRestorableMobileUser(me)) {
+        await stopLocationCaptureForAuthLoss();
         await authService.logout();
+        dropUser();
         setUser(null);
         setHasPersistedSession(false);
         setError('Sesión sin actor operativo válido.');
         throw new Error('ACTOR_NOT_SUPPORTED');
       }
+      adoptUser(me);
       setUser(me);
       setHasPersistedSession(true);
       await registerPushIfSessionReady(me, source);
@@ -244,11 +271,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logLogoutReason('user_logout');
     setIsLoading(true);
     try {
+      await stopLocationCaptureForAuthLoss();
       await unregisterDevicePushTokenAsync();
       await authService.logout();
     } catch {
+      await stopLocationCaptureForAuthLoss();
       await tokenStorage.clearAll();
     } finally {
+      dropUser();
       setUser(null);
       setHasPersistedSession(false);
       setError(null);
@@ -265,6 +295,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!isRestorableMobileUser(me)) {
       throw new Error('Sesión sin actor operativo válido');
     }
+    adoptUser(me);
     setUser(me);
     setHasPersistedSession(true);
     setError(null);

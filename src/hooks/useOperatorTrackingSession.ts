@@ -5,15 +5,17 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
 import {
+  isNewOperatorObservationBlocked,
+  registerForegroundCaptureStopper,
+} from '@/utils/authLossCaptureGate';
+import {
   cancelTrackingSession,
   endTrackingSession,
-  fetchTrackingSession,
   sendTrackingPointsBatch,
   startTrackingSession,
 } from '@/services/trackingSessionService';
 import { requestForegroundGpsPermission } from '@/services/locationService';
 import {
-  ensureOperatorBackgroundTracking,
   isOperatorTrackingStartedAsync,
   startOperatorTrackingAsync,
   stopOperatorTrackingAsync,
@@ -32,8 +34,9 @@ import {
 import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthStorage';
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { operatorCaptureConsentStorage } from '@/storage/operatorCaptureConsentStorage';
-import { mensajeroBootstrapStorage } from '@/storage/mensajeroBootstrapStorage';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
+import { syncMensajeroOperationalBootstrap } from '@/services/mensajeroBootstrapRuntime';
+import { resolveManualStartAfterBootstrap } from '@/utils/mensajeroBootstrapCoordinator';
 import type {
   StoredTrackingSession,
   TrackingPointInput,
@@ -56,14 +59,24 @@ import {
 import {
   buildStoredTrackingSession,
   cleanupLocalTrackingSession,
-  clearActiveTrackingSession,
+  preserveForeignTrackingSession,
   isStoredTrackingSessionOwnedByUser,
-  isTrackingSessionForbiddenOrNotFound,
-  isTrackingSessionNotActiveError,
   isActiveSessionExistsError,
   getExistingSessionIdFromStartConflict,
+  decideOperatorBatchCatchAction,
 } from '@/utils/trackingSessionOwnership';
-import { toTrackingPoint } from '@/utils/trackingPointMapper';
+import {
+  ingestOperatorLocations,
+  resetOperatorIngestionForSession,
+} from '@/utils/operatorIngestionCoordinator';
+import { recordOperatorForegroundIngestionError } from '@/utils/operatorIngestionObservability';
+import { releaseJourneyLocationAndRestoreMessenger } from '@/utils/locationOwnershipHandoff';
+import {
+  admitQueueProvenance,
+  QUEUE_ADMISSION_FOREGROUND,
+} from '@/utils/temporalProvenance';
+import { TRACKING_REQUEST_SOURCE } from '@/types/trackingRequestSource';
+import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryForNewSession } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelineForNewSession } from '@/utils/trackingPipelineObserver';
 import { startMotionTelemetryForSession } from '@/services/motionTelemetryService';
@@ -71,7 +84,10 @@ import { startMotionTelemetryForSession } from '@/services/motionTelemetryServic
 const BATCH_FLUSH_MS = 12000;
 const WATCH_TIME_INTERVAL_MS = 20000;
 const WATCH_DISTANCE_INTERVAL_M = 10;
-const FG_POINT_METADATA = { source: 'android_mvp' as const };
+const FG_POINT_METADATA = {
+  source: 'android_mvp' as const,
+  request_source: TRACKING_REQUEST_SOURCE.operatorForegroundBalanced,
+};
 
 function shortSessionId(id: string): string {
   const compact = id.replace(/-/g, '');
@@ -200,9 +216,14 @@ export function useOperatorTrackingSession() {
     bufferRef.current = [];
   }, []);
 
+  useEffect(() => {
+    return registerForegroundCaptureStopper(stopWatch);
+  }, [stopWatch]);
+
   const stopOperatorBackground = useCallback(async () => {
     await stopOperatorTrackingAsync();
     operatorBgActiveRef.current = false;
+    setOperatorBackgroundOwnership(false);
     setOperatorBgActive(false);
   }, []);
 
@@ -211,6 +232,7 @@ export function useOperatorTrackingSession() {
     setRemoteStatus(null);
     setOperatorBgActive(false);
     operatorBgActiveRef.current = false;
+    setOperatorBackgroundOwnership(false);
     setElapsedSeconds(0);
     setPointsSent(0);
     setLastPointAt(null);
@@ -224,7 +246,15 @@ export function useOperatorTrackingSession() {
     setSuccessMessage('La captura ya fue cerrada remotamente.');
   }, [resetInactiveSessionState, stopWatch]);
 
+  const handleWriterConflict = useCallback(async () => {
+    stopWatch();
+    await cleanupLocalTrackingSession('writer_conflict');
+    resetInactiveSessionState();
+    setSuccessMessage('La captura continúa en otro dispositivo.');
+  }, [resetInactiveSessionState, stopWatch]);
+
   const flushBuffer = useCallback(async (sessionId: string) => {
+    if (isNewOperatorObservationBlocked()) return;
     if (operatorBgActiveRef.current) {
       bufferRef.current = [];
       return;
@@ -280,8 +310,29 @@ export function useOperatorTrackingSession() {
       }
     } catch (e) {
       recordForegroundBatchError(e, sessionId, batchStartedAt, batch.length);
-      if (isTrackingSessionNotActiveError(e)) {
+      const action = decideOperatorBatchCatchAction(e);
+      if (action.type === 'cleanup') {
+        if (action.reason === 'writer_conflict') {
+          recordTrackingDiagnostic(
+            'writer-conflict',
+            { channel: 'foreground', requeued: false },
+            sessionId,
+          );
+          await handleWriterConflict();
+          return;
+        }
         await handleSessionClosedRemotely();
+        return;
+      }
+      if (action.type === 'resume_writer') {
+        recordTrackingDiagnostic(
+          'writer-unclaimed',
+          { channel: 'foreground', requeued: false },
+          sessionId,
+        );
+        if (user) {
+          await runMensajeroHydrateCapture({ sessionId, user });
+        }
         return;
       }
       bufferRef.current.unshift(...batch);
@@ -293,7 +344,7 @@ export function useOperatorTrackingSession() {
     } finally {
       flushInFlightRef.current = false;
     }
-  }, [handleSessionClosedRemotely]);
+  }, [handleSessionClosedRemotely, handleWriterConflict, user]);
 
   const startWatch = useCallback(
     async (sessionId: string) => {
@@ -312,6 +363,7 @@ export function useOperatorTrackingSession() {
           distanceInterval: WATCH_DISTANCE_INTERVAL_M,
         },
         (update) => {
+          if (isNewOperatorObservationBlocked()) return;
           const sid = sessionIdRef.current;
           if (!sid) return;
 
@@ -321,29 +373,57 @@ export function useOperatorTrackingSession() {
             sid,
           );
 
-          const point = toTrackingPoint(update, 'foreground', FG_POINT_METADATA);
-          if (!point) return;
+          // Fase A: el rol lo decide el ownership confirmado, y el mapeo ocurre
+          // dentro del coordinador. Con background autoritativo este callback no
+          // toca previousFix, motion, stats ni cola.
+          void (async () => {
+            const startedAt = trackingSessionStorage.getActiveSessionStartedAtSync();
+            const startedAtMs = startedAt ? Date.parse(startedAt) : null;
+            const ingestion = await ingestOperatorLocations({
+              sessionId: sid,
+              locations: [update],
+              channel: 'foreground',
+              metadata: FG_POINT_METADATA,
+              sessionStartedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+              sessionStartedAt: startedAt ?? null,
+            });
 
-          recordTrackingDiagnostic('gps-fix-received', gpsDetailFromPoint(point), sid);
-          setLastPointAt(point.captured_at);
+            // Snapshot de UI no mutante: válido en ambos roles.
+            const uiPoint = ingestion.points[0] ?? ingestion.observed[0] ?? null;
+            if (uiPoint) setLastPointAt(uiPoint.captured_at);
 
-          if (operatorBgActiveRef.current) {
-            return;
-          }
+            if (ingestion.role === 'observe') {
+              recordTrackingDiagnostic(
+                'operator-ingestion-observe',
+                { channel: 'foreground', observed: ingestion.observed.length },
+                sid,
+              );
+              return;
+            }
 
-          bufferRef.current.push(point);
-          recordTrackingDiagnostic(
-            'point-buffered',
-            { bufferSize: bufferRef.current.length, channel: 'foreground' },
-            sid,
-          );
-          const now = Date.now();
-          if (
-            now - lastFlushAtRef.current >= BATCH_FLUSH_MS ||
-            bufferRef.current.length >= 5
-          ) {
-            void flushBuffer(sid);
-          }
+            if (ingestion.points.length === 0) return;
+
+            for (const point of ingestion.points) {
+              recordTrackingDiagnostic('gps-fix-received', gpsDetailFromPoint(point), sid);
+              bufferRef.current.push(
+                admitQueueProvenance(point, QUEUE_ADMISSION_FOREGROUND),
+              );
+            }
+            recordTrackingDiagnostic(
+              'point-buffered',
+              { bufferSize: bufferRef.current.length, channel: 'foreground' },
+              sid,
+            );
+            const now = Date.now();
+            if (
+              now - lastFlushAtRef.current >= BATCH_FLUSH_MS ||
+              bufferRef.current.length >= 5
+            ) {
+              void flushBuffer(sid);
+            }
+          })().catch((error: unknown) => {
+            recordOperatorForegroundIngestionError(sid, error);
+          });
         },
       );
     },
@@ -353,6 +433,7 @@ export function useOperatorTrackingSession() {
   const startOperatorBackground = useCallback(async (): Promise<boolean> => {
     const started = await startOperatorTrackingAsync();
     operatorBgActiveRef.current = started;
+    setOperatorBackgroundOwnership(started);
     setOperatorBgActive(started);
     return started;
   }, []);
@@ -368,8 +449,8 @@ export function useOperatorTrackingSession() {
         return;
       }
 
-      if (!isStoredTrackingSessionOwnedByUser(local, user)) {
-        await clearActiveTrackingSession('owner_mismatch');
+      if (!user || !isStoredTrackingSessionOwnedByUser(local, user)) {
+        await preserveForeignTrackingSession();
         stopWatch();
         resetInactiveSessionState();
         return;
@@ -380,36 +461,29 @@ export function useOperatorTrackingSession() {
       setVehicleLabel(local.vehicleLabel);
       resetSpeedTelemetryForNewSession(local.sessionId);
       resetTrackingPipelineForNewSession(local.sessionId);
+      resetOperatorIngestionForSession(local.sessionId);
       void startMotionTelemetryForSession(local.sessionId);
       recordTrackingDiagnostic('tracking-restored', {
         sessionId: local.sessionId,
         startedAt: local.startedAt,
       }, local.sessionId);
 
-      try {
-        const remote = await fetchTrackingSession(local.sessionId);
-        if (!remote || remote.status !== 'active') {
-          await clearActiveTrackingSession('remote_inactive');
-          stopWatch();
-          resetInactiveSessionState();
-          return;
-        }
-        setRemoteStatus(remote.status);
-      } catch (e) {
-        if (isTrackingSessionForbiddenOrNotFound(e)) {
-          await clearActiveTrackingSession('remote_forbidden');
-          stopWatch();
-          resetInactiveSessionState();
-          return;
-        }
-        setRemoteStatus('active');
+      await runMensajeroHydrateCapture({ sessionId: local.sessionId, user });
+      const after = await trackingSessionStorage.getActive();
+      if (!after || !isStoredTrackingSessionOwnedByUser(after, user)) {
+        stopWatch();
+        resetInactiveSessionState();
+        return;
       }
 
-      const bgOk = await ensureOperatorBackgroundTracking();
+      setStoredSession(after);
+      setRemoteStatus('active');
+      const bgOk = await isOperatorTrackingStartedAsync();
       operatorBgActiveRef.current = bgOk;
       setOperatorBgActive(bgOk);
+      setOperatorBackgroundOwnership(bgOk);
 
-      await startWatch(local.sessionId);
+      await startWatch(after.sessionId);
     } finally {
       setLoading(false);
     }
@@ -553,14 +627,32 @@ export function useOperatorTrackingSession() {
 
       await assertCanStartOperatorCapture(actorId, appRole);
 
-      const persistedBootstrap = await mensajeroBootstrapStorage.get(user.user_id);
+      const readiness = await resolveManualStartAfterBootstrap({
+        awaitSettledBootstrap: () =>
+          syncMensajeroOperationalBootstrap({
+            user,
+            source: 'refresh',
+            force: true,
+          }),
+        getOwnedLocalSessionId: async () => {
+          const local = await trackingSessionStorage.getActive();
+          if (!local || !isStoredTrackingSessionOwnedByUser(local, user)) return null;
+          return local.sessionId;
+        },
+      });
+      if (readiness.status === 'active_session') {
+        setError('Ya hay una captura logística activa.');
+        await hydrateFromStorage();
+        return;
+      }
+
       const params = buildTrackingStartParams({
         purpose,
         vehicleLabel: label,
         consentAccepted: true,
         notes: notes.trim() || undefined,
         existingMetadata: { source: 'android_mvp' },
-        journeyId: persistedBootstrap?.journeyId,
+        journeyId: readiness.journeyId,
       });
       if ('error' in params) {
         setError(
@@ -650,6 +742,10 @@ export function useOperatorTrackingSession() {
     stopWatch();
     await cleanupLocalTrackingSession('capture_closed', { pendingQueuePolicy });
     resetInactiveSessionState();
+    // Task Operator ya detenida y sesión local ya limpiada. No arranca
+    // Messenger BG aquí: el coordinador restaura solo si el último pedido
+    // fue ASSIGNED o IN_SERVICE.
+    await releaseJourneyLocationAndRestoreMessenger();
   }, [resetInactiveSessionState, stopOperatorBackground, stopWatch]);
 
   const endCapture = useCallback(async (): Promise<string | null> => {

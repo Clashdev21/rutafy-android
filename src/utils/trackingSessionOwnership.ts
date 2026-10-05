@@ -15,6 +15,7 @@ import {
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingSessionEndReason } from '@/types/trackingDiagnostics';
+import { clearOperatorIngestion } from '@/utils/operatorIngestionCoordinator';
 import { resetMotionStateObserver } from '@/utils/motionStateObserver';
 import { resetSpeedTelemetryForNewSession, resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { resetTrackingPipelinePreviousFix } from '@/utils/trackingPipelineObserver';
@@ -65,6 +66,8 @@ export async function cleanupLocalTrackingSession(
   resetSpeedTelemetryPreviousFix();
   resetMotionStateObserver();
   resetTrackingPipelinePreviousFix();
+  // Fase A: ningún punto de esta sesión puede participar en la siguiente.
+  clearOperatorIngestion();
   await stopOperatorTrackingAsync();
 
   const active = await trackingSessionStorage.getActive();
@@ -96,6 +99,17 @@ export async function cleanupLocalTrackingSession(
   await trackingSessionStorage.clearActive();
 }
 
+/**
+ * Otro usuario abrió la app. No adopta la sesión, no sube su cola y
+ * no la borra. La referencia local sigue disponible si vuelve el dueño.
+ */
+export async function preserveForeignTrackingSession(): Promise<void> {
+  if (__DEV__) {
+    console.log('[tracking-session-owner-mismatch]', { preserved: true });
+  }
+  await stopOperatorTrackingAsync();
+}
+
 export async function clearActiveTrackingSession(
   reason: 'owner_mismatch' | 'remote_inactive' | 'remote_forbidden',
 ): Promise<void> {
@@ -111,7 +125,11 @@ export async function clearActiveTrackingSession(
 }
 
 export {
+  decideCaptureResumeFollowUp,
+  decideOperatorBatchCatchAction,
   getExistingSessionIdFromStartConflict,
   isActiveSessionExistsError,
   isTrackingSessionNotActiveError,
+  isWriterConflictError,
+  isWriterUnclaimedError,
 } from './trackingSessionErrors';

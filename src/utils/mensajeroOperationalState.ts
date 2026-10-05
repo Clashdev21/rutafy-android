@@ -24,8 +24,8 @@ export function canHydrateMyServices(params: {
  * STARTED → IN_SERVICE; CLAIMED → ASSIGNED; isOnline no oculta un CLAIMED/STARTED.
  *
  * Sprint 3C.4: NO mapear actions de operational-bootstrap a estos estados.
- * ASSIGNED/IN_SERVICE activan heartbeat GPS del mensajero, que bloquea captura logística.
- * Bootstrap se superpone como notice + start/hydrate/stop del tracking manager 3B.
+ * ASSIGNED/IN_SERVICE piden heartbeat GPS del mensajero, salvo que Journey
+ * capture posea Location (CAPTURE_REQUIRED/ACTIVE → Operator BG tiene prioridad).
  */
 export function deriveMensajeroOperationalUiState(input: {
   activeServiceStatus: string | null | undefined;

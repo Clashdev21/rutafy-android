@@ -22,7 +22,21 @@ import { operatorTrackingHealthStorage } from '@/storage/operatorTrackingHealthS
 import { operatorTrackingPendingQueue } from '@/storage/operatorTrackingPendingQueue';
 import { trackingSessionStorage } from '@/storage/trackingSessionStorage';
 import type { TrackingPointInput } from '@/types/tracking';
+import {
+  currentIdentityMayUploadOperatorSession,
+  refreshStatusRequiresLocationShutdown,
+} from '@/utils/authLossCaptureGate';
+import { stopLocationCaptureForAuthLoss } from '@/utils/authLossLocationShutdown';
 import { classifyOperatorBgBatchError } from '@/utils/operatorTrackingHealthAudit';
+import {
+  buildOperatorTrackingRequestHeaders,
+  getOrCreateInstallationId,
+} from '@/utils/operatorInstallation';
+import { mensajeroResumeSingleFlight } from '@/utils/mensajeroStartFlow';
+import {
+  classifyTrackingConflictFromResponse,
+  decideOperatorBatchCatchAction,
+} from '@/utils/trackingSessionErrors';
 import {
   computeIntraCallbackCapturedAtSpanMs,
 } from '@/utils/operatorTrackingPendingQueueLogic';
@@ -30,16 +44,40 @@ import {
   FINALIZATION_DRAIN_TIMEOUT_MS,
   type FinalizationDrainOutcome,
 } from '@/utils/operatorTrackingFinalization';
-import { locationsToTrackingPoints } from '@/utils/trackingPointMapper';
+import {
+  recordOperatorBackgroundEmptyCallback,
+} from '@/utils/operatorIngestionObservability';
+import {
+  clearOperatorIngestion,
+  ingestOperatorLocations,
+} from '@/utils/operatorIngestionCoordinator';
+import { setOperatorBackgroundOwnership } from '@/utils/operatorIngestionOwnership';
 import { resetSpeedTelemetryPreviousFix } from '@/utils/speedTelemetryObserver';
 import { buildTraceId } from '@/utils/traceId';
+import { TRACKING_REQUEST_SOURCE } from '@/types/trackingRequestSource';
+import { buildTrackingPointsBatchRequest } from '@/utils/temporalProvenance';
 
 /** Task de ubicación en segundo plano para captura logística (separada del mensajero). */
 export const OPERATOR_TRACKING_TASK_NAME = 'rutafy-operator-tracking';
 
-const BG_POINT_METADATA = { source: 'android_background' as const };
+/**
+ * Timeout HTTP de un POST background. Distinto de FINALIZATION_DRAIN_TIMEOUT_MS:
+ * este acota el fetch; el drain acota la espera de cierre.
+ *
+ * 20s: por encima del axios FG (15s) para redes BG más lentas; por debajo
+ * del drain (25s) para que un hang aborte y libere batchInFlight antes del
+ * deadline de finalization. No hay evidencia de latencias normales >20s.
+ */
+export const OPERATOR_BATCH_HTTP_TIMEOUT_MS = 20_000;
+
+const BG_POINT_METADATA = {
+  source: 'android_background' as const,
+  request_source: TRACKING_REQUEST_SOURCE.operatorBackgroundHigh,
+};
 /** Tamaño máximo por POST; la cola puede acumular más mientras hay batch en vuelo. */
 const BG_BATCH_MAX_POINTS = 25;
+
+let operatorBatchHttpTimeoutMs = OPERATOR_BATCH_HTTP_TIMEOUT_MS;
 
 /** Concurrencia HTTP (máx. 1 POST). Distinto de mutationChain de AsyncStorage. */
 let batchInFlight = false;
@@ -100,26 +138,97 @@ export function isOperatorFinalizationActive(): boolean {
   return finalizationActive;
 }
 
+export class OperatorBatchHttpTimeoutError extends Error {
+  readonly name = 'OperatorBatchHttpTimeoutError';
+  readonly reason = 'http_timeout' as const;
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`operator_batch_http_timeout:${timeoutMs}`);
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function __setOperatorBatchHttpTimeoutMsForTests(ms: number | null): void {
+  operatorBatchHttpTimeoutMs = ms == null ? OPERATOR_BATCH_HTTP_TIMEOUT_MS : ms;
+}
+
+export function __resetOperatorBatchRuntimeForTests(): void {
+  batchInFlight = false;
+  finalizationActive = false;
+  batchIdleResolvers = [];
+}
+
+function classifyOperatorBatchFetchFailure(
+  error: unknown,
+  signal: AbortSignal,
+): 'http_timeout' | 'aborted' | 'network_error' {
+  if (signal.aborted || error instanceof OperatorBatchHttpTimeoutError) {
+    return 'http_timeout';
+  }
+  if (error instanceof Error) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      return 'aborted';
+    }
+    const msg = error.message.toLowerCase();
+    if (msg.includes('timeout') || msg.includes('timed out')) {
+      return 'http_timeout';
+    }
+    if (msg.includes('aborted') || msg.includes('abort')) {
+      return 'aborted';
+    }
+  }
+  return 'network_error';
+}
+
 async function recordTaskDrop(reason: string): Promise<void> {
   console.log('[operator-bg-task-drop]', { reason });
   await operatorTrackingHealthStorage.recordDrop(reason);
 }
 
-function isSessionNotActiveResponse(
-  status: number,
-  parsed: Record<string, unknown> | null,
-  detail: string,
-): boolean {
-  if (status !== 409) return false;
-  const token = [
-    parsed?.error,
-    parsed?.code,
-    parsed?.message,
-    detail,
-  ]
-    .filter((v): v is string => typeof v === 'string')
-    .join(' ');
-  return token.includes('session_not_active');
+async function claimWriterFromBackground(sessionId: string): Promise<void> {
+  const flight = await mensajeroResumeSingleFlight.run(async () => {
+    const token = await getValidAccessToken({ source: 'operator_tracking_bg_resume' });
+    if (!token) {
+      throw new Error('401');
+    }
+    const installationId = await getOrCreateInstallationId();
+    const path = TRACKING_SESSION_ENDPOINTS.resume(sessionId);
+    const response = await expoFetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: buildOperatorTrackingRequestHeaders({
+        accessToken: token,
+        installationId,
+        traceId: buildTraceId('operator-bg-resume'),
+      }),
+      body: '{}',
+    });
+    const text = await response.text();
+    let parsed: Record<string, unknown> | null = null;
+    if (text) {
+      try {
+        parsed = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!response.ok) {
+      const detail =
+        typeof parsed?.error === 'string'
+          ? parsed.error
+          : typeof parsed?.message === 'string'
+            ? parsed.message
+            : `HTTP ${response.status}`;
+      const code = classifyTrackingConflictFromResponse(response.status, parsed, detail);
+      if (code === 'writer_conflict') {
+        throw new Error('writer_conflict');
+      }
+      throw new Error(detail);
+    }
+    recordTrackingDiagnostic('tracking-resume', { channel: 'background' }, sessionId);
+  });
+
+  if (flight.status === 'skipped') return;
 }
 
 function recordBatchHttpError(
@@ -145,6 +254,7 @@ async function cleanupClosedSessionLocally(reason: string): Promise<void> {
   await stopMotionTelemetryForSession(reason);
   await endSessionSpeedStatistics();
   resetSpeedTelemetryPreviousFix();
+  clearOperatorIngestion();
   const stored = await trackingSessionStorage.getActive();
   if (stored?.sessionId) {
     await operatorTrackingPendingQueue.clear(stored.sessionId);
@@ -170,26 +280,48 @@ async function executeBatchPost(
     }
 > {
   const path = TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId);
+  const installationId = await getOrCreateInstallationId();
+  const controller = new AbortController();
+  const timeoutMs = operatorBatchHttpTimeoutMs;
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
   let response: Response;
   try {
     response = await expoFetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'x-trace-id': buildTraceId('operator-bg-batch'),
-      },
-      body: JSON.stringify({ points }),
+      headers: buildOperatorTrackingRequestHeaders({
+        accessToken: token,
+        installationId,
+        traceId: buildTraceId('operator-bg-batch'),
+      }),
+      body: JSON.stringify(buildTrackingPointsBatchRequest(points)),
+      signal: controller.signal,
     });
   } catch (e) {
     const apiLatencyMs = Date.now() - apiStartedAt;
+    const kind = classifyOperatorBatchFetchFailure(e, controller.signal);
+    if (kind === 'http_timeout') {
+      recordTrackingDiagnostic(
+        'batch-timeout',
+        {
+          channel: 'background',
+          reason: 'http_timeout',
+          timeoutMs,
+          apiLatencyMs,
+          latencyMs: apiLatencyMs,
+        },
+        sessionId,
+      );
+      throw new OperatorBatchHttpTimeoutError(timeoutMs);
+    }
     const msg = e instanceof Error ? e.message : String(e);
-    const isTimeout = msg.toLowerCase().includes('timeout');
     recordTrackingDiagnostic(
-      isTimeout ? 'batch-timeout' : 'batch-error',
+      kind === 'aborted' ? 'batch-timeout' : 'batch-error',
       {
         channel: 'background',
+        ...(kind === 'aborted' ? { reason: 'aborted' } : {}),
         apiLatencyMs,
         latencyMs: apiLatencyMs,
         error: msg,
@@ -197,6 +329,8 @@ async function executeBatchPost(
       sessionId,
     );
     throw e;
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const text = await response.text();
@@ -287,6 +421,9 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
   );
 
   const authStartedAt = Date.now();
+  if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+    throw new Error('auth_loss_quiesced');
+  }
   let token = await getValidAccessToken({ source: 'operator_tracking_bg' });
   authLatencyMs += Date.now() - authStartedAt;
 
@@ -343,18 +480,30 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
       apiStartedAt = Date.now();
       result = await executeBatchPost(sessionId, points, token, apiStartedAt);
       apiLatencyMs += result.apiLatencyMs;
-    } else if (refreshOutcome.status === 'auth_invalid') {
+    } else if (refreshStatusRequiresLocationShutdown(refreshOutcome.status)) {
       recordTrackingDiagnostic(
         'refresh-failed',
         { source: 'operator_tracking_bg_401', reason: 'auth_invalid' },
         sessionId,
       );
+      await stopLocationCaptureForAuthLoss();
     }
   }
 
   if (!result.ok) {
-    if (isSessionNotActiveResponse(result.status, result.parsed, result.detail)) {
+    const conflict = classifyTrackingConflictFromResponse(
+      result.status,
+      result.parsed,
+      result.detail,
+    );
+    if (conflict === 'session_not_active') {
       throw new Error('session_not_active');
+    }
+    if (conflict === 'writer_conflict') {
+      throw new Error('writer_conflict');
+    }
+    if (conflict === 'writer_unclaimed') {
+      throw new Error('writer_unclaimed');
     }
     if (result.status !== 401) {
       const totalLatencyMs = Date.now() - totalStartedAt;
@@ -388,11 +537,15 @@ async function postPointsBatch(sessionId: string, points: TrackingPointInput[]):
  * Si ya hay batch en vuelo, conserva puntos y retorna (sin descartar).
  * Durante finalizationActive: encola pero no inicia drain (lo posee END).
  */
-async function enqueueAndFlushBackgroundPoints(
+export async function enqueueAndFlushBackgroundPoints(
   sessionId: string,
   points: TrackingPointInput[],
   options?: { deferredBecauseInFlight?: boolean; forceFlush?: boolean },
 ): Promise<{ stoppedForError: boolean; sessionNotActive: boolean }> {
+  if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+    return { stoppedForError: false, sessionNotActive: false };
+  }
+
   if (points.length > 0) {
     const enqueueResult = await operatorTrackingPendingQueue.enqueue(sessionId, points);
     if (enqueueResult.added > 0) {
@@ -457,6 +610,9 @@ async function enqueueAndFlushBackgroundPoints(
   let sessionNotActive = false;
   try {
     while (true) {
+      if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+        break;
+      }
       const batch = await operatorTrackingPendingQueue.dequeueBatch(
         sessionId,
         BG_BATCH_MAX_POINTS,
@@ -474,12 +630,45 @@ async function enqueueAndFlushBackgroundPoints(
         await operatorTrackingHealthStorage.recordBatchOk();
         console.log('[operator-bg-batch-ok]', { accepted });
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        await operatorTrackingPendingQueue.requeueFront(sessionId, batch);
-        if (message.includes('session_not_active')) {
-          sessionNotActive = true;
+        const action = decideOperatorBatchCatchAction(e);
+        if (action.requeue) {
+          await operatorTrackingPendingQueue.requeueFront(sessionId, batch);
+        }
+        if (action.type === 'cleanup') {
+          if (action.reason === 'session_not_active') {
+            sessionNotActive = true;
+          }
           stoppedForError = true;
-          await cleanupClosedSessionLocally('session_not_active_bg');
+          recordTrackingDiagnostic(
+            action.reason === 'writer_conflict' ? 'writer-conflict' : 'tracking-cleanup',
+            { channel: 'background', reason: action.reason, requeued: false },
+            sessionId,
+          );
+          await cleanupClosedSessionLocally(
+            action.reason === 'writer_conflict' ? 'writer_conflict_bg' : 'session_not_active_bg',
+          );
+          break;
+        }
+        if (action.type === 'resume_writer') {
+          stoppedForError = true;
+          recordTrackingDiagnostic(
+            'writer-unclaimed',
+            { channel: 'background', requeued: false },
+            sessionId,
+          );
+          try {
+            await claimWriterFromBackground(sessionId);
+          } catch (resumeError) {
+            const resumeAction = decideOperatorBatchCatchAction(resumeError);
+            if (resumeAction.type === 'cleanup' && resumeAction.reason === 'writer_conflict') {
+              recordTrackingDiagnostic(
+                'writer-conflict',
+                { channel: 'background', source: 'resume_after_unclaimed' },
+                sessionId,
+              );
+              await cleanupClosedSessionLocally('writer_conflict_bg');
+            }
+          }
           break;
         }
         const errorCode = classifyOperatorBgBatchError(e);
@@ -638,6 +827,9 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     const stored = await trackingSessionStorage.getActive();
     const sessionId = stored?.sessionId?.trim() || undefined;
     const taskStarted = await isOperatorTrackingStartedAsync();
+    // Ownership confirmado en un evento de lifecycle/health ya existente:
+    // no se consulta el TaskManager por cada punto.
+    setOperatorBackgroundOwnership(taskStarted);
     await runTrackingHealthCheck({
       sessionId,
       fgServiceStarted: taskStarted,
@@ -662,14 +854,25 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
       return;
     }
 
+    if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+      return;
+    }
+
     const payload = data as { locations?: unknown } | undefined;
     const rawLocationCount = Array.isArray(payload?.locations) ? payload.locations.length : 0;
 
-    const points = locationsToTrackingPoints(
-      payload?.locations,
-      'background',
-      BG_POINT_METADATA,
-    );
+    const startedAtMs = stored?.startedAt ? Date.parse(stored.startedAt) : null;
+    // Fase A: orden cronológico + dedupe exacto + gate temporal antes del estimador.
+    const ingestion = await ingestOperatorLocations({
+      sessionId,
+      locations: payload?.locations,
+      channel: 'background',
+      metadata: BG_POINT_METADATA,
+      role: 'authoritative',
+      sessionStartedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+      sessionStartedAt: stored?.startedAt ?? null,
+    });
+    const points = ingestion.points;
 
     const intraCallbackCapturedAtSpanMs = computeIntraCallbackCapturedAtSpanMs(points);
 
@@ -680,6 +883,10 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
         locationCount: rawLocationCount,
         mappedPointCount: points.length,
         intraCallbackCapturedAtSpanMs,
+        sortedCallback: ingestion.sortedCallback,
+        rejectedCount: ingestion.rejected.length,
+        // Solo informativo: los inválidos ya se contaron en su propio evento.
+        invalidCount: ingestion.invalid,
         batchInFlight,
         finalizationActive,
       },
@@ -687,12 +894,15 @@ if (!TaskManager.isTaskDefined(OPERATOR_TRACKING_TASK_NAME)) {
     );
 
     if (points.length === 0) {
-      recordTrackingDiagnostic(
-        'gps-location-timeout',
-        { channel: 'background', reason: 'empty_points' },
+      const emptyKind = recordOperatorBackgroundEmptyCallback({
         sessionId,
-      );
-      await recordTaskDrop('empty_points');
+        rawLocationCount,
+        rejectedCount: ingestion.rejected.length,
+        invalidCount: ingestion.invalid,
+      });
+      if (emptyKind === 'timeout') {
+        await recordTaskDrop('empty_points');
+      }
       return;
     }
 

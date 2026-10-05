@@ -1,3 +1,7 @@
+/**
+ * Assets in-app de production. Launcher/splash nativos de staging
+ * se resuelven en app.config.js desde assets/images/staging/ cuando existan.
+ */
 export const brandImages = {
   logoIcon: require('../../assets/brand/logo-icon.png'),
   logoFull: require('../../assets/images/logo-full.png'),

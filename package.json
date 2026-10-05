@@ -1,7 +1,7 @@
 {
   "name": "rutafy-android",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
     "@expo/ui": "~56.0.18",
@@ -42,6 +42,7 @@
   "devDependencies": {
     "@expo/ngrok": "^4.1.3",
     "@types/react": "~19.2.2",
+    "patch-package": "^8.0.1",
     "sharp": "^0.34.2",
     "typescript": "~6.0.3"
   },
@@ -54,7 +55,27 @@
     "web:dev": "expo start --web",
     "lint": "expo lint",
     "test:operational": "node --experimental-strip-types --test scripts/test-mensajero-operational.ts scripts/test-operational-bootstrap.ts",
-    "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts"
+    "test:control": "node --experimental-strip-types --test scripts/test-control-mobile.ts",
+    "test:operator-ingestion": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-ingestion-phase-a.ts",
+    "test:operator-c1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-c1-m1.ts",
+    "test:operator-n1": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-operator-network-n1.ts",
+    "test:app-identity": "node --experimental-strip-types --test scripts/test-app-identity.ts",
+    "test:location-handoff": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-location-ownership-handoff.ts",
+    "test:temporal-provenance": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-temporal-provenance.ts",
+    "test:request-provenance": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-request-provenance.ts",
+    "test:native-quality": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-native-quality.ts",
+    "test:native-quality-patch": "node scripts/verify-native-quality-patch.js",
+    "postinstall": "patch-package && node scripts/verify-native-quality-patch.js",
+    "test:auth-loss": "node --experimental-strip-types --import ./scripts/test-hooks/register.mjs --test scripts/test-auth-loss-location.ts"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-location"
+        ]
+      }
+    }
+  }
 }

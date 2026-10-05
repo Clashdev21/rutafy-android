@@ -68,6 +68,8 @@ export type TrackingPointInput = {
   heading?: number | null;
   battery_level?: number | null;
   app_state: TrackingPointAppState;
+  /** Identidad técnica del fix. Ausente en puntos de cola anteriores a la procedencia. */
+  fix_id?: string;
   metadata?: Record<string, unknown>;
 };
 

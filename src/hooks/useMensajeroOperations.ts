@@ -385,6 +385,7 @@ export function useMensajeroOperations(
         canOperate,
         uiState,
         activeServiceStatus: activeService?.status ?? null,
+        lastBootstrapAction,
         shouldEnableBackgroundTracking,
       });
     }
@@ -397,6 +398,7 @@ export function useMensajeroOperations(
     canOperate,
     uiState,
     activeService?.status,
+    lastBootstrapAction,
   ]);
 
   useEffect(() => {
@@ -442,8 +444,8 @@ export function useMensajeroOperations(
       setAvailabilitySyncing(false);
     }
 
-    // Cerrar el servicio libera el task GPS del heartbeat: si hay un Journey activo
-    // esperando captura, el bootstrap debe poder arrancarla ya, no en el próximo foreground.
+    // Cerrar el servicio puede restaurar Messenger BG si Journey ya no posee Location.
+    // Si hay Journey CAPTURE_REQUIRED/ACTIVE, el handoff ya priorizó Operator BG.
     void syncBootstrap('refresh', true);
   }, [
     effectiveActorId,

@@ -12,6 +12,8 @@ import type {
   TrackingSessionStats,
   TrackingSessionStatus,
 } from '@/types/tracking';
+import { currentIdentityMayUploadOperatorSession } from '@/utils/authLossCaptureGate';
+import { buildTrackingPointsBatchRequest } from '@/utils/temporalProvenance';
 
 function pickStr(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -167,13 +169,28 @@ export async function startTrackingSession(
   return session;
 }
 
+export async function resumeTrackingSession(
+  sessionId: string,
+): Promise<TrackingSession | null> {
+  const id = sessionId.trim();
+  if (!id) {
+    throw new Error('tracking_session_id requerido para resume');
+  }
+  const { data } = await apiClient.post(TRACKING_SESSION_ENDPOINTS.resume(id), {});
+  return normalizeSession(data);
+}
+
 export async function sendTrackingPointsBatch(
   sessionId: string,
   points: TrackingPointInput[],
 ): Promise<{ accepted: number }> {
-  const { data } = await apiClient.post(TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId), {
-    points,
-  });
+  if (!(await currentIdentityMayUploadOperatorSession(sessionId))) {
+    throw new Error('auth_loss_quiesced');
+  }
+  const { data } = await apiClient.post(
+    TRACKING_SESSION_ENDPOINTS.pointsBatch(sessionId),
+    buildTrackingPointsBatchRequest(points),
+  );
   const row = data as Record<string, unknown> | null;
   const accepted =
     typeof row?.accepted === 'number'
